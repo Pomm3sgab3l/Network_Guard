@@ -1,34 +1,23 @@
 #!/bin/bash
-###############################################################################
-# Bob Node Installation Script
-# Installs the Qubic Bob Node (Indexer & REST API)
+# bob-install.sh - Qubic Bob Node installer
 #
-# Usage:
-#   ./bob-install.sh [MODE] [OPTIONS]
+# Usage: ./bob-install.sh <mode> [options]
 #
 # Modes:
-#   docker-standalone   All-in-one Docker container (Bob + Redis + KVRocks)
-#   docker-compose      Modular Docker setup (separate containers)
-#   manual              Build from source with systemd service
+#   docker-standalone   all-in-one container (bob + redis + kvrocks)
+#   docker-compose      modular setup (separate containers)
+#   manual              build from source + systemd
 #
 # Options:
-#   --peers <ip:port,ip:port>   Trusted peers to sync from
-#   --threads <n>               Max threads (0 = auto, default: 0)
-#   --rpc-port <port>           REST API / JSON-RPC port (default: 40420)
-#   --server-port <port>        P2P server port (default: 21842)
-#   --data-dir <path>           Data directory (default: /opt/qubic-bob)
-#
-# Examples:
-#   ./bob-install.sh docker-standalone
-#   ./bob-install.sh docker-compose --peers 1.2.3.4:21841
-#   ./bob-install.sh manual --peers 1.2.3.4:21841 --threads 8
-###############################################################################
+#   --peers <ip:port,...>   peers to sync from
+#   --threads <n>           max threads (0=auto)
+#   --rpc-port <port>       REST API port (default: 40420)
+#   --server-port <port>    P2P port (default: 21842)
+#   --data-dir <path>       install dir (default: /opt/qubic-bob)
 
 set -e
 
-# =============================================================================
-# Default Configuration
-# =============================================================================
+# defaults
 MODE=""
 PEERS=""
 MAX_THREADS=0
@@ -40,108 +29,61 @@ DOCKER_IMAGE="j0et0m/qubic-bob"
 DOCKER_IMAGE_STANDALONE="j0et0m/qubic-bob-standalone"
 ARBITRATOR_ID="AFZPUAIYVPNUYGJRQVLUKOPPVLHAZQTGLYAAUUNBXFTVTAMSBKQBLEIEPCVJ"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
-# =============================================================================
-# Helper Functions
-# =============================================================================
-log_info()  { echo -e "${CYAN}[INFO]${NC} $1"; }
-log_ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-
-print_banner() {
-    echo -e "${CYAN}"
-    echo "============================================="
-    echo "       Qubic Bob Node Installer"
-    echo "============================================="
-    echo -e "${NC}"
-}
+log_info()  { echo -e "${CYAN}[*]${NC} $1"; }
+log_ok()    { echo -e "${GREEN}[+]${NC} $1"; }
+log_warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
+log_error() { echo -e "${RED}[-]${NC} $1"; }
 
 print_usage() {
-    echo "Usage: $0 [MODE] [OPTIONS]"
+    echo "Usage: $0 <mode> [options]"
     echo ""
     echo "Modes:"
-    echo "  docker-standalone   All-in-one Docker container (recommended)"
-    echo "  docker-compose      Modular Docker setup (separate containers)"
-    echo "  manual              Build from source with systemd service"
+    echo "  docker-standalone   all-in-one container (recommended)"
+    echo "  docker-compose      modular (separate containers)"
+    echo "  manual              build from source + systemd"
     echo ""
     echo "Options:"
-    echo "  --peers <ip:port,...>   Trusted peers to sync from"
-    echo "  --threads <n>          Max threads (0 = auto, default: 0)"
+    echo "  --peers <ip:port,...>   peers to sync from"
+    echo "  --threads <n>          max threads (0=auto)"
     echo "  --rpc-port <port>      REST API port (default: 40420)"
-    echo "  --server-port <port>   P2P server port (default: 21842)"
-    echo "  --data-dir <path>      Data directory (default: /opt/qubic-bob)"
-    echo ""
-    echo "Examples:"
-    echo "  $0 docker-standalone"
-    echo "  $0 docker-compose --peers 1.2.3.4:21841"
-    echo "  $0 manual --peers 1.2.3.4:21841 --threads 8"
+    echo "  --server-port <port>   P2P port (default: 21842)"
+    echo "  --data-dir <path>      install dir (default: /opt/qubic-bob)"
 }
 
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        log_error "This script must be run as root (use sudo)"
+        log_error "run as root"
         exit 1
     fi
 }
 
 check_system() {
-    log_info "Checking system requirements..."
+    log_info "checking system..."
 
-    # Check OS
     if [ ! -f /etc/os-release ]; then
-        log_error "Unsupported OS. This script requires Ubuntu/Debian."
+        log_error "needs Ubuntu/Debian"
         exit 1
     fi
 
-    # Check RAM
-    TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-    TOTAL_RAM_GB=$((TOTAL_RAM_KB / 1024 / 1024))
-    if [ "$TOTAL_RAM_GB" -lt 14 ]; then
-        log_warn "System has ${TOTAL_RAM_GB}GB RAM. Minimum recommended: 16GB"
-    else
-        log_ok "RAM: ${TOTAL_RAM_GB}GB"
-    fi
+    local ram_kb ram_gb cores avail_gb
+    ram_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    ram_gb=$((ram_kb / 1024 / 1024))
+    cores=$(nproc)
+    avail_gb=$(df -BG / | tail -1 | awk '{print $4}' | tr -d 'G')
 
-    # Check CPU cores
-    CPU_CORES=$(nproc)
-    if [ "$CPU_CORES" -lt 4 ]; then
-        log_warn "System has ${CPU_CORES} CPU cores. Minimum recommended: 4"
-    else
-        log_ok "CPU cores: ${CPU_CORES}"
-    fi
-
-    # Check AVX2
-    if grep -q avx2 /proc/cpuinfo; then
-        log_ok "AVX2 support: yes"
-    else
-        log_warn "AVX2 support: not detected (may cause issues)"
-    fi
-
-    # Check disk space
-    AVAILABLE_GB=$(df -BG / | tail -1 | awk '{print $4}' | tr -d 'G')
-    if [ "$AVAILABLE_GB" -lt 100 ]; then
-        log_warn "Available disk: ${AVAILABLE_GB}GB. Minimum recommended: 100GB"
-    else
-        log_ok "Available disk: ${AVAILABLE_GB}GB"
-    fi
+    [ "$ram_gb" -lt 14 ] && log_warn "RAM: ${ram_gb}GB (need 16GB)" || log_ok "RAM: ${ram_gb}GB"
+    [ "$cores" -lt 4 ] && log_warn "CPU: ${cores} cores (need 4)" || log_ok "CPU: ${cores} cores"
+    grep -q avx2 /proc/cpuinfo && log_ok "AVX2: yes" || log_warn "AVX2: not detected"
+    [ "$avail_gb" -lt 100 ] && log_warn "Disk: ${avail_gb}GB (need 100GB)" || log_ok "Disk: ${avail_gb}GB"
 }
 
-# =============================================================================
-# Configuration Generator
-# =============================================================================
-generate_config() {
-    local keydb_host="$1"
-    local kvrocks_host="$2"
-    local config_path="$3"
+# --- config generation ---
 
-    # Build peers array
+generate_config() {
+    local keydb_host="$1" kvrocks_host="$2" config_path="$3"
+
     local peers_json="[]"
     if [ -n "$PEERS" ]; then
         peers_json=$(echo "$PEERS" | tr ',' '\n' | awk '{printf "\"%s\",", $0}' | sed 's/,$//' | awk '{print "["$0"]"}')
@@ -169,26 +111,19 @@ generate_config() {
 }
 CONFIGEOF
 
-    log_ok "Configuration written to ${config_path}"
+    log_ok "config -> ${config_path}"
 }
 
-# =============================================================================
-# Docker Standalone Installation
-# =============================================================================
+# --- docker standalone ---
+
 install_docker_standalone() {
-    log_info "Installing Bob Node (Docker Standalone)..."
+    log_info "setting up bob (docker standalone)..."
 
-    # Install Docker if needed
     install_docker_engine
+    mkdir -p "${DATA_DIR}" && cd "${DATA_DIR}"
 
-    # Create directories
-    mkdir -p "${DATA_DIR}"
-    cd "${DATA_DIR}"
-
-    # Generate config
     generate_config "127.0.0.1" "127.0.0.1" "${DATA_DIR}/bob.json"
 
-    # Create docker-compose file
     cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
 services:
   qubic-bob:
@@ -205,50 +140,36 @@ services:
 
 volumes:
   qubic-bob-redis:
-    driver: local
   qubic-bob-kvrocks:
-    driver: local
   qubic-bob-data:
-    driver: local
 COMPOSEEOF
 
-    # Update ports in compose file
     sed -i "s/\"21842:21842\"/\"${SERVER_PORT}:21842\"/" "${DATA_DIR}/docker-compose.yml"
     sed -i "s/\"40420:40420\"/\"${RPC_PORT}:40420\"/" "${DATA_DIR}/docker-compose.yml"
 
-    # Start containers
-    log_info "Starting containers..."
-    cd "${DATA_DIR}"
+    log_info "starting containers..."
     docker compose up -d
 
-    log_ok "Bob Node (Docker Standalone) installed successfully!"
+    log_ok "done!"
     print_status_docker
 }
 
-# =============================================================================
-# Docker Compose Installation (Modular)
-# =============================================================================
+# --- docker compose (modular) ---
+
 install_docker_compose() {
-    log_info "Installing Bob Node (Docker Compose)..."
+    log_info "setting up bob (docker compose)..."
 
-    # Install Docker if needed
     install_docker_engine
+    mkdir -p "${DATA_DIR}" && cd "${DATA_DIR}"
 
-    # Create directories
-    mkdir -p "${DATA_DIR}"
-    cd "${DATA_DIR}"
-
-    # Generate config (using container hostnames)
     generate_config "keydb" "kvrocks" "${DATA_DIR}/bob.json"
 
-    # Download config files from repo
-    log_info "Downloading configuration files..."
+    log_info "downloading keydb/kvrocks configs..."
     curl -sSfL -o "${DATA_DIR}/keydb.conf" \
         "https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/keydb.conf"
     curl -sSfL -o "${DATA_DIR}/kvrocks.conf" \
         "https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/kvrocks.conf"
 
-    # Create docker-compose file
     cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
 services:
   qubic-bob:
@@ -266,7 +187,7 @@ services:
       kvrocks:
         condition: service_healthy
     networks:
-      - qubic-bob-network
+      - bobnet
 
   keydb:
     image: eqalpha/keydb:latest
@@ -283,7 +204,7 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - qubic-bob-network
+      - bobnet
 
   kvrocks:
     image: apache/kvrocks:latest
@@ -299,62 +220,47 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - qubic-bob-network
+      - bobnet
 
 networks:
-  qubic-bob-network:
-    driver: bridge
+  bobnet:
 
 volumes:
   qubic-bob-data:
-    driver: local
   qubic-bob-keydb:
-    driver: local
   qubic-bob-kvrocks:
-    driver: local
 COMPOSEEOF
 
-    # Update ports in compose file
     sed -i "0,/\"21842:21842\"/{s/\"21842:21842\"/\"${SERVER_PORT}:21842\"/}" "${DATA_DIR}/docker-compose.yml"
     sed -i "0,/\"40420:40420\"/{s/\"40420:40420\"/\"${RPC_PORT}:40420\"/}" "${DATA_DIR}/docker-compose.yml"
 
-    # Start containers
-    log_info "Starting containers..."
-    cd "${DATA_DIR}"
+    log_info "starting containers..."
     docker compose up -d
 
-    log_ok "Bob Node (Docker Compose) installed successfully!"
+    log_ok "done!"
     print_status_docker
 }
 
-# =============================================================================
-# Manual Installation (Build from Source)
-# =============================================================================
-install_manual() {
-    log_info "Installing Bob Node (Build from Source)..."
+# --- manual (source build) ---
 
-    # Install build dependencies
-    log_info "Installing build dependencies..."
+install_manual() {
+    log_info "building bob from source..."
+
+    log_info "installing deps..."
     apt-get update
     apt-get install -y build-essential cmake git libjsoncpp-dev \
         uuid-dev libhiredis-dev zlib1g-dev unzip wget curl \
         net-tools tmux lsb-release gnupg
 
-    # Install KeyDB
     install_keydb
-
-    # Install KVRocks
     install_kvrocks
 
-    # Clone and build Bob
-    log_info "Cloning and building Bob Node..."
+    log_info "cloning qubicbob..."
     mkdir -p "${DATA_DIR}"
-    cd "${DATA_DIR}"
 
     if [ -d "${DATA_DIR}/qubicbob" ]; then
-        log_info "Existing source found, pulling updates..."
-        cd "${DATA_DIR}/qubicbob"
-        git pull
+        log_info "source exists, pulling..."
+        cd "${DATA_DIR}/qubicbob" && git pull
     else
         git clone "${REPO_URL}" "${DATA_DIR}/qubicbob"
         cd "${DATA_DIR}/qubicbob"
@@ -363,74 +269,60 @@ install_manual() {
     mkdir -p build && cd build
     cmake ../
     make -j"$(nproc)"
+    log_ok "build complete"
 
-    log_ok "Bob Node built successfully"
-
-    # Generate config
     generate_config "127.0.0.1" "127.0.0.1" "${DATA_DIR}/qubicbob/build/config.json"
-
-    # Create systemd service
     create_bob_service
 
-    log_ok "Bob Node (Manual) installed successfully!"
+    log_ok "done!"
     print_status_manual
 }
 
-# =============================================================================
-# Component Installers
-# =============================================================================
+# --- component installers ---
+
 install_docker_engine() {
     if command -v docker &> /dev/null; then
-        log_ok "Docker already installed: $(docker --version)"
+        log_ok "docker: $(docker --version)"
         return
     fi
-
-    log_info "Installing Docker..."
+    log_info "installing docker..."
     curl -fsSL https://get.docker.com | sh
-    systemctl enable docker
-    systemctl start docker
-    log_ok "Docker installed"
+    systemctl enable docker && systemctl start docker
+    log_ok "docker installed"
 }
 
 install_keydb() {
     if systemctl is-active --quiet keydb-server 2>/dev/null; then
-        log_ok "KeyDB already running"
+        log_ok "keydb already running"
         return
     fi
-
-    log_info "Installing KeyDB..."
+    log_info "installing keydb..."
     echo "deb https://download.keydb.dev/open-source-dist $(lsb_release -sc) main" | \
         tee /etc/apt/sources.list.d/keydb.list
     wget -qO /etc/apt/trusted.gpg.d/keydb.gpg \
         https://download.keydb.dev/open-source-dist/keyring.gpg
-    apt-get update
-    apt-get install -y keydb
-
-    systemctl enable keydb-server
-    systemctl start keydb-server
-    log_ok "KeyDB installed and running"
+    apt-get update && apt-get install -y keydb
+    systemctl enable keydb-server && systemctl start keydb-server
+    log_ok "keydb running"
 }
 
 install_kvrocks() {
     if command -v kvrocks &> /dev/null || [ -f /usr/local/bin/kvrocks ]; then
-        log_ok "KVRocks already installed"
+        log_ok "kvrocks already installed"
         return
     fi
-
-    log_info "Building and installing KVRocks (this may take a while)..."
-    local build_dir="/tmp/kvrocks-build"
-    rm -rf "${build_dir}"
-    git clone --branch v2.9.0 --depth 1 https://github.com/apache/kvrocks.git "${build_dir}"
-    cd "${build_dir}"
-    mkdir build && cd build
+    log_info "building kvrocks (takes a while)..."
+    local bdir="/tmp/kvrocks-build"
+    rm -rf "${bdir}"
+    git clone --branch v2.9.0 --depth 1 https://github.com/apache/kvrocks.git "${bdir}"
+    cd "${bdir}" && mkdir build && cd build
     cmake .. -DCMAKE_BUILD_TYPE=Release
     make -j"$(nproc)"
     cp src/kvrocks /usr/local/bin/
 
-    # Create KVRocks systemd service
     cat > /etc/systemd/system/kvrocks.service <<EOF
 [Unit]
-Description=KVRocks Server
+Description=KVRocks
 After=network.target
 
 [Service]
@@ -444,16 +336,13 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable kvrocks
-    systemctl start kvrocks
-
-    rm -rf "${build_dir}"
-    log_ok "KVRocks installed and running"
+    systemctl enable kvrocks && systemctl start kvrocks
+    rm -rf "${bdir}"
+    log_ok "kvrocks running"
 }
 
 create_bob_service() {
-    log_info "Creating systemd service..."
-
+    log_info "creating systemd service..."
     cat > /etc/systemd/system/qubic-bob.service <<EOF
 [Unit]
 Description=Qubic Bob Node
@@ -473,131 +362,76 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable qubic-bob
-    systemctl start qubic-bob
-
-    log_ok "Systemd service created and started"
+    systemctl enable qubic-bob && systemctl start qubic-bob
+    log_ok "service started"
 }
 
-# =============================================================================
-# Status Output
-# =============================================================================
+# --- status output ---
+
 print_status_docker() {
     echo ""
-    echo -e "${GREEN}=============================================${NC}"
-    echo -e "${GREEN}  Bob Node Installation Complete${NC}"
-    echo -e "${GREEN}=============================================${NC}"
+    echo -e "${GREEN}--- bob node ready ---${NC}"
+    echo "  dir:     ${DATA_DIR}"
+    echo "  config:  ${DATA_DIR}/bob.json"
+    echo "  P2P:     ${SERVER_PORT}"
+    echo "  API:     http://localhost:${RPC_PORT}"
     echo ""
-    echo "  Data directory:  ${DATA_DIR}"
-    echo "  Config file:     ${DATA_DIR}/bob.json"
-    echo "  P2P port:        ${SERVER_PORT}"
-    echo "  RPC/API port:    ${RPC_PORT}"
-    echo ""
-    echo "  Useful commands:"
-    echo "    cd ${DATA_DIR}"
-    echo "    docker compose ps              # check status"
-    echo "    docker compose logs -f         # view logs"
-    echo "    docker compose restart         # restart"
-    echo "    docker compose down            # stop"
-    echo "    docker compose pull && docker compose up -d  # update"
-    echo ""
-    echo "  API endpoint:    http://localhost:${RPC_PORT}"
+    echo "  docker compose ps       # status"
+    echo "  docker compose logs -f  # logs"
+    echo "  docker compose restart  # restart"
     echo ""
 }
 
 print_status_manual() {
     echo ""
-    echo -e "${GREEN}=============================================${NC}"
-    echo -e "${GREEN}  Bob Node Installation Complete${NC}"
-    echo -e "${GREEN}=============================================${NC}"
+    echo -e "${GREEN}--- bob node ready ---${NC}"
+    echo "  binary:  ${DATA_DIR}/qubicbob/build/bob"
+    echo "  config:  ${DATA_DIR}/qubicbob/build/config.json"
+    echo "  service: qubic-bob"
+    echo "  P2P:     ${SERVER_PORT}"
+    echo "  API:     http://localhost:${RPC_PORT}"
     echo ""
-    echo "  Binary:          ${DATA_DIR}/qubicbob/build/bob"
-    echo "  Config file:     ${DATA_DIR}/qubicbob/build/config.json"
-    echo "  Service name:    qubic-bob"
-    echo "  P2P port:        ${SERVER_PORT}"
-    echo "  RPC/API port:    ${RPC_PORT}"
-    echo ""
-    echo "  Useful commands:"
-    echo "    systemctl status qubic-bob     # check status"
-    echo "    journalctl -u qubic-bob -f     # view logs"
-    echo "    systemctl restart qubic-bob    # restart"
-    echo "    systemctl stop qubic-bob       # stop"
-    echo ""
-    echo "  API endpoint:    http://localhost:${RPC_PORT}"
+    echo "  systemctl status qubic-bob    # status"
+    echo "  journalctl -u qubic-bob -f    # logs"
     echo ""
 }
 
-# =============================================================================
-# Parse Arguments
-# =============================================================================
+# --- arg parsing ---
+
 parse_args() {
     if [ $# -eq 0 ]; then
         print_usage
         exit 1
     fi
 
-    MODE="$1"
-    shift
+    MODE="$1"; shift
 
     while [ $# -gt 0 ]; do
         case "$1" in
-            --peers)
-                PEERS="$2"
-                shift 2
-                ;;
-            --threads)
-                MAX_THREADS="$2"
-                shift 2
-                ;;
-            --rpc-port)
-                RPC_PORT="$2"
-                shift 2
-                ;;
-            --server-port)
-                SERVER_PORT="$2"
-                shift 2
-                ;;
-            --data-dir)
-                DATA_DIR="$2"
-                shift 2
-                ;;
-            --help|-h)
-                print_usage
-                exit 0
-                ;;
-            *)
-                log_error "Unknown option: $1"
-                print_usage
-                exit 1
-                ;;
+            --peers)       PEERS="$2";       shift 2 ;;
+            --threads)     MAX_THREADS="$2"; shift 2 ;;
+            --rpc-port)    RPC_PORT="$2";    shift 2 ;;
+            --server-port) SERVER_PORT="$2"; shift 2 ;;
+            --data-dir)    DATA_DIR="$2";    shift 2 ;;
+            --help|-h)     print_usage;      exit 0  ;;
+            *) log_error "unknown option: $1"; print_usage; exit 1 ;;
         esac
     done
 }
 
-# =============================================================================
-# Main
-# =============================================================================
+# --- main ---
+
 main() {
-    print_banner
+    echo -e "${CYAN}=== qubic bob node installer ===${NC}"
     parse_args "$@"
     check_root
     check_system
 
     case "$MODE" in
-        docker-standalone)
-            install_docker_standalone
-            ;;
-        docker-compose)
-            install_docker_compose
-            ;;
-        manual)
-            install_manual
-            ;;
-        *)
-            log_error "Unknown mode: ${MODE}"
-            print_usage
-            exit 1
-            ;;
+        docker-standalone) install_docker_standalone ;;
+        docker-compose)    install_docker_compose ;;
+        manual)            install_manual ;;
+        *) log_error "unknown mode: ${MODE}"; print_usage; exit 1 ;;
     esac
 }
 

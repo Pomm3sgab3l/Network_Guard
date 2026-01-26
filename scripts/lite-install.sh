@@ -1,239 +1,153 @@
 #!/bin/bash
-###############################################################################
-# Qubic Lite Node Installation Script
-# Installs the Qubic Core Lite Node (runs on OS without UEFI)
+# lite-install.sh - Qubic Lite Node installer
 #
-# Usage:
-#   ./lite-install.sh [MODE] [OPTIONS]
+# Usage: ./lite-install.sh <mode> [options]
 #
 # Modes:
-#   docker     Build and run via Docker container
-#   manual     Build from source with systemd service
+#   docker     build + run via docker
+#   manual     build from source + systemd
 #
 # Options:
-#   --peers <ip1,ip2,...>   Peer node IPs to connect to
-#   --testnet               Enable testnet mode (default: mainnet)
-#   --port <port>           Node port (default: 21841)
-#   --data-dir <path>       Data directory (default: /opt/qubic-lite)
-#   --avx512                Enable AVX-512 support (default: AVX2 only)
-#   --security-tick <n>     Security tick interval for testnet (default: 32)
-#   --ticking-delay <n>     Ticking delay in ms for testnet (default: 1000)
-#
-# Examples:
-#   ./lite-install.sh docker --testnet
-#   ./lite-install.sh manual --peers 1.2.3.4,5.6.7.8
-#   ./lite-install.sh manual --testnet --security-tick 32
-###############################################################################
+#   --peers <ip1,ip2,...>   peer IPs
+#   --testnet               testnet mode (default: mainnet)
+#   --port <port>           P2P port (default: 21841)
+#   --http-port <port>      HTTP/RPC port (default: 41841)
+#   --data-dir <path>       install dir (default: /opt/qubic-lite)
+#   --avx512                enable AVX-512
+#   --security-tick <n>     quorum bypass interval, testnet (default: 32)
+#   --ticking-delay <n>     tick delay ms, testnet (default: 1000)
 
 set -e
 
-# =============================================================================
-# Default Configuration
-# =============================================================================
+# defaults
 MODE=""
 PEERS=""
 TESTNET=false
 NODE_PORT=21841
+HTTP_PORT=41841
 DATA_DIR="/opt/qubic-lite"
 REPO_URL="https://github.com/hackerby888/qubic-core-lite.git"
 ENABLE_AVX512=false
 SECURITY_TICK=32
 TICKING_DELAY=1000
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
-# =============================================================================
-# Helper Functions
-# =============================================================================
-log_info()  { echo -e "${CYAN}[INFO]${NC} $1"; }
-log_ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-
-print_banner() {
-    echo -e "${CYAN}"
-    echo "============================================="
-    echo "     Qubic Lite Node Installer"
-    echo "============================================="
-    echo -e "${NC}"
-}
+log_info()  { echo -e "${CYAN}[*]${NC} $1"; }
+log_ok()    { echo -e "${GREEN}[+]${NC} $1"; }
+log_warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
+log_error() { echo -e "${RED}[-]${NC} $1"; }
 
 print_usage() {
-    echo "Usage: $0 [MODE] [OPTIONS]"
+    echo "Usage: $0 <mode> [options]"
     echo ""
     echo "Modes:"
-    echo "  docker     Build and run via Docker container"
-    echo "  manual     Build from source with systemd service"
+    echo "  docker     build + run via docker"
+    echo "  manual     build from source + systemd"
     echo ""
     echo "Options:"
-    echo "  --peers <ip1,ip2,...>   Peer node IPs to connect to"
-    echo "  --testnet               Enable testnet mode (default: mainnet)"
-    echo "  --port <port>           Node port (default: 21841)"
-    echo "  --data-dir <path>       Data directory (default: /opt/qubic-lite)"
-    echo "  --avx512                Enable AVX-512 instruction support"
-    echo "  --security-tick <n>     Security tick interval, testnet only (default: 32)"
-    echo "  --ticking-delay <n>     Ticking delay in ms, testnet only (default: 1000)"
-    echo ""
-    echo "Examples:"
-    echo "  $0 docker --testnet"
-    echo "  $0 manual --peers 1.2.3.4,5.6.7.8"
-    echo "  $0 manual --testnet --security-tick 32 --ticking-delay 1000"
+    echo "  --peers <ip1,ip2,...>   peer IPs"
+    echo "  --testnet               testnet mode (default: mainnet)"
+    echo "  --port <port>           P2P port (default: 21841)"
+    echo "  --http-port <port>      HTTP/RPC port (default: 41841)"
+    echo "  --data-dir <path>       install dir (default: /opt/qubic-lite)"
+    echo "  --avx512                enable AVX-512"
+    echo "  --security-tick <n>     quorum bypass, testnet only (default: 32)"
+    echo "  --ticking-delay <n>     tick delay ms, testnet only (default: 1000)"
 }
 
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        log_error "This script must be run as root (use sudo)"
+        log_error "run as root"
         exit 1
     fi
 }
 
 check_system() {
-    log_info "Checking system requirements..."
+    log_info "checking system..."
 
-    # Check OS
     if [ ! -f /etc/os-release ]; then
-        log_error "Unsupported OS. This script requires Ubuntu/Debian."
+        log_error "needs Ubuntu/Debian"
         exit 1
     fi
 
-    # Check RAM
-    TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-    TOTAL_RAM_GB=$((TOTAL_RAM_KB / 1024 / 1024))
+    local ram_kb ram_gb cores avail_gb min_ram
+    ram_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    ram_gb=$((ram_kb / 1024 / 1024))
+    cores=$(nproc)
+    avail_gb=$(df -BG / | tail -1 | awk '{print $4}' | tr -d 'G')
 
-    if [ "$TESTNET" = true ]; then
-        local min_ram=14
-    else
-        local min_ram=60
-    fi
+    [ "$TESTNET" = true ] && min_ram=14 || min_ram=60
 
-    if [ "$TOTAL_RAM_GB" -lt "$min_ram" ]; then
-        if [ "$TESTNET" = true ]; then
-            log_warn "System has ${TOTAL_RAM_GB}GB RAM. Minimum for testnet: 16GB"
-        else
-            log_warn "System has ${TOTAL_RAM_GB}GB RAM. Minimum for mainnet: 64GB"
-        fi
-    else
-        log_ok "RAM: ${TOTAL_RAM_GB}GB"
-    fi
+    [ "$ram_gb" -lt "$min_ram" ] && log_warn "RAM: ${ram_gb}GB (need $((min_ram + 2))GB)" || log_ok "RAM: ${ram_gb}GB"
+    log_ok "CPU: ${cores} cores"
+    grep -q avx2 /proc/cpuinfo && log_ok "AVX2: yes" || log_warn "AVX2: not detected (required for mainnet)"
 
-    # Check CPU
-    CPU_CORES=$(nproc)
-    log_ok "CPU cores: ${CPU_CORES}"
-
-    # Check AVX2
-    if grep -q avx2 /proc/cpuinfo; then
-        log_ok "AVX2 support: yes"
-    else
-        log_warn "AVX2 support: not detected (required for mainnet!)"
-    fi
-
-    # Check AVX512
     if [ "$ENABLE_AVX512" = true ]; then
-        if grep -q avx512 /proc/cpuinfo; then
-            log_ok "AVX-512 support: yes"
-        else
-            log_warn "AVX-512 support: not detected but requested"
-        fi
+        grep -q avx512 /proc/cpuinfo && log_ok "AVX-512: yes" || log_warn "AVX-512: not detected but requested"
     fi
 
-    # Check disk space
-    AVAILABLE_GB=$(df -BG / | tail -1 | awk '{print $4}' | tr -d 'G')
-    if [ "$TESTNET" = false ] && [ "$AVAILABLE_GB" -lt 500 ]; then
-        log_warn "Available disk: ${AVAILABLE_GB}GB. Minimum for mainnet: 500GB"
+    if [ "$TESTNET" = false ] && [ "$avail_gb" -lt 500 ]; then
+        log_warn "Disk: ${avail_gb}GB (need 500GB for mainnet)"
     else
-        log_ok "Available disk: ${AVAILABLE_GB}GB"
+        log_ok "Disk: ${avail_gb}GB"
     fi
 }
 
-# =============================================================================
-# Build Qubic binary arguments
-# =============================================================================
+# --- build node args ---
+
 build_node_args() {
     local args=""
-
-    if [ "$TESTNET" = true ]; then
-        args="--security-tick ${SECURITY_TICK} --ticking-delay ${TICKING_DELAY}"
-    fi
-
-    if [ -n "$PEERS" ]; then
-        args="${args} --peers ${PEERS}"
-    fi
-
+    [ "$TESTNET" = true ] && args="--security-tick ${SECURITY_TICK} --ticking-delay ${TICKING_DELAY}"
+    [ -n "$PEERS" ] && args="${args} --peers ${PEERS}"
     echo "$args"
 }
 
-# =============================================================================
-# Docker Installation
-# =============================================================================
+# --- docker install ---
+
 install_docker() {
-    log_info "Installing Lite Node (Docker)..."
+    log_info "setting up lite node (docker)..."
 
-    # Install Docker if needed
     install_docker_engine
+    mkdir -p "${DATA_DIR}" && cd "${DATA_DIR}"
 
-    # Create directories
-    mkdir -p "${DATA_DIR}"
-    cd "${DATA_DIR}"
-
-    # Determine AVX512 flag
     local avx_flag="OFF"
-    if [ "$ENABLE_AVX512" = true ]; then
-        avx_flag="ON"
-    fi
+    [ "$ENABLE_AVX512" = true ] && avx_flag="ON"
 
-    # Create Dockerfile
-    log_info "Creating Dockerfile..."
+    log_info "creating Dockerfile..."
     cat > "${DATA_DIR}/Dockerfile" <<DOCKEREOF
 FROM ubuntu:24.04 AS builder
-
 ENV DEBIAN_FRONTEND=noninteractive
-
 RUN apt-get update && apt-get install -y \\
-    build-essential clang cmake nasm git \\
+    build-essential clang cmake nasm git g++ \\
     libc++-dev libc++abi-dev libjsoncpp-dev uuid-dev zlib1g-dev \\
+    libstdc++-12-dev libfmt-dev \\
     && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 RUN git clone ${REPO_URL} .
-
 WORKDIR /app/build
 RUN cmake .. \\
-    -DCMAKE_C_COMPILER=clang \\
-    -DCMAKE_CXX_COMPILER=clang++ \\
-    -DBUILD_TESTS=OFF \\
-    -DBUILD_BINARY=ON \\
-    -DCMAKE_BUILD_TYPE=Release \\
-    -DENABLE_AVX512=${avx_flag} \\
+    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \\
+    -DBUILD_TESTS=OFF -DBUILD_BINARY=ON \\
+    -DCMAKE_BUILD_TYPE=Release -DENABLE_AVX512=${avx_flag} \\
     && cmake --build . -- -j\$(nproc)
 
 FROM ubuntu:24.04
-
 RUN apt-get update && apt-get install -y \\
-    libc++1 libc++abi1 libjsoncpp25 \\
+    libc++1 libc++abi1 libjsoncpp25 libfmt9 \\
     && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /qubic
 COPY --from=builder /app/build/src/Qubic .
-
-EXPOSE ${NODE_PORT}
-
+EXPOSE ${NODE_PORT} ${HTTP_PORT}
 ENTRYPOINT ["./Qubic"]
 DOCKEREOF
 
-    # Build image
-    log_info "Building Docker image (this may take several minutes)..."
+    log_info "building docker image (this takes a while)..."
     docker build -t qubic-lite-node "${DATA_DIR}"
 
-    # Build node arguments
     local node_args
     node_args=$(build_node_args)
 
-    # Create docker-compose file
     cat > "${DATA_DIR}/docker-compose.yml" <<COMPOSEEOF
 services:
   qubic-lite:
@@ -242,56 +156,50 @@ services:
     restart: unless-stopped
     ports:
       - "${NODE_PORT}:${NODE_PORT}"
+      - "${HTTP_PORT}:${HTTP_PORT}"
     volumes:
       - qubic-lite-data:/qubic/data
     command: ${node_args}
 
 volumes:
   qubic-lite-data:
-    driver: local
 COMPOSEEOF
 
-    # Start container
-    log_info "Starting container..."
-    cd "${DATA_DIR}"
+    log_info "starting container..."
     docker compose up -d
 
-    log_ok "Lite Node (Docker) installed successfully!"
+    log_ok "done!"
     print_status_docker
 }
 
-# =============================================================================
-# Manual Installation (Build from Source)
-# =============================================================================
-install_manual() {
-    log_info "Installing Lite Node (Build from Source)..."
+# --- manual install (source) ---
 
-    # Install build dependencies
-    log_info "Installing build dependencies..."
+install_manual() {
+    log_info "building lite node from source..."
+
+    log_info "installing deps..."
     apt-get update
-    apt-get install -y build-essential clang cmake nasm git \
+    apt-get install -y build-essential clang cmake nasm git g++ \
         libc++-dev libc++abi-dev libjsoncpp-dev uuid-dev zlib1g-dev \
+        libstdc++-12-dev libfmt-dev \
         wget curl tmux
 
-    # Clone and build
-    log_info "Cloning and building Qubic Core Lite..."
+    check_build_tools
+
+    log_info "cloning qubic-core-lite..."
     mkdir -p "${DATA_DIR}"
 
     if [ -d "${DATA_DIR}/qubic-core-lite" ]; then
-        log_info "Existing source found, pulling updates..."
-        cd "${DATA_DIR}/qubic-core-lite"
-        git pull
+        log_info "source exists, pulling..."
+        cd "${DATA_DIR}/qubic-core-lite" && git pull
     else
         git clone "${REPO_URL}" "${DATA_DIR}/qubic-core-lite"
     fi
 
     cd "${DATA_DIR}/qubic-core-lite"
 
-    # Determine AVX512 flag
     local avx_flag="OFF"
-    if [ "$ENABLE_AVX512" = true ]; then
-        avx_flag="ON"
-    fi
+    [ "$ENABLE_AVX512" = true ] && avx_flag="ON"
 
     mkdir -p build && cd build
     cmake .. \
@@ -302,37 +210,68 @@ install_manual() {
         -DCMAKE_BUILD_TYPE=Release \
         -DENABLE_AVX512="${avx_flag}"
     cmake --build . -- -j"$(nproc)"
+    log_ok "build complete"
 
-    log_ok "Qubic Core Lite built successfully"
-
-    # Create data directory for runtime
     mkdir -p "${DATA_DIR}/data"
-
-    # Create systemd service
     create_lite_service
 
-    log_ok "Lite Node (Manual) installed successfully!"
+    log_ok "done!"
     print_status_manual
 }
 
-# =============================================================================
-# Component Installers
-# =============================================================================
-install_docker_engine() {
-    if command -v docker &> /dev/null; then
-        log_ok "Docker already installed: $(docker --version)"
-        return
+# --- component installers ---
+
+check_build_tools() {
+    log_info "checking build tools..."
+    local ok=true
+
+    if command -v clang &> /dev/null; then
+        local clang_ver clang_major
+        clang_ver=$(clang --version | head -1 | grep -oP '\d+\.\d+\.\d+' | head -1)
+        clang_major=$(echo "$clang_ver" | cut -d. -f1)
+        [ "$clang_major" -ge 18 ] 2>/dev/null && log_ok "clang: ${clang_ver}" || { log_warn "clang: ${clang_ver} (need >= 18.1.0)"; ok=false; }
+    else
+        log_warn "clang: not found"; ok=false
     fi
 
-    log_info "Installing Docker..."
+    if command -v cmake &> /dev/null; then
+        local cmake_ver cmake_major cmake_minor
+        cmake_ver=$(cmake --version | head -1 | grep -oP '\d+\.\d+(\.\d+)?' | head -1)
+        cmake_major=$(echo "$cmake_ver" | cut -d. -f1)
+        cmake_minor=$(echo "$cmake_ver" | cut -d. -f2)
+        if [ "$cmake_major" -gt 3 ] 2>/dev/null || { [ "$cmake_major" -eq 3 ] && [ "$cmake_minor" -ge 14 ]; } 2>/dev/null; then
+            log_ok "cmake: ${cmake_ver}"
+        else
+            log_warn "cmake: ${cmake_ver} (need >= 3.14)"; ok=false
+        fi
+    else
+        log_warn "cmake: not found"; ok=false
+    fi
+
+    if command -v nasm &> /dev/null; then
+        local nasm_ver
+        nasm_ver=$(nasm --version | grep -oP '\d+\.\d+\.\d+' | head -1)
+        log_ok "nasm: ${nasm_ver}"
+    else
+        log_warn "nasm: not found"; ok=false
+    fi
+
+    [ "$ok" = false ] && log_warn "some tools missing/outdated - build may still work"
+}
+
+install_docker_engine() {
+    if command -v docker &> /dev/null; then
+        log_ok "docker: $(docker --version)"
+        return
+    fi
+    log_info "installing docker..."
     curl -fsSL https://get.docker.com | sh
-    systemctl enable docker
-    systemctl start docker
-    log_ok "Docker installed"
+    systemctl enable docker && systemctl start docker
+    log_ok "docker installed"
 }
 
 create_lite_service() {
-    log_info "Creating systemd service..."
+    log_info "creating systemd service..."
 
     local node_args
     node_args=$(build_node_args)
@@ -355,158 +294,100 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable qubic-lite
-    systemctl start qubic-lite
-
-    log_ok "Systemd service created and started"
+    systemctl enable qubic-lite && systemctl start qubic-lite
+    log_ok "service started"
 }
 
-# =============================================================================
-# Status Output
-# =============================================================================
+# --- status output ---
+
 print_status_docker() {
-    local mode_label="Mainnet"
-    if [ "$TESTNET" = true ]; then
-        mode_label="Testnet"
-    fi
+    local mode_label="mainnet"
+    [ "$TESTNET" = true ] && mode_label="testnet"
 
     echo ""
-    echo -e "${GREEN}=============================================${NC}"
-    echo -e "${GREEN}  Lite Node Installation Complete${NC}"
-    echo -e "${GREEN}=============================================${NC}"
+    echo -e "${GREEN}--- lite node ready (${mode_label}) ---${NC}"
+    echo "  dir:      ${DATA_DIR}"
+    echo "  P2P:      ${NODE_PORT}"
+    echo "  HTTP/RPC: http://localhost:${HTTP_PORT}"
+    [ -n "$PEERS" ] && echo "  peers:    ${PEERS}"
     echo ""
-    echo "  Mode:            ${mode_label}"
-    echo "  Data directory:  ${DATA_DIR}"
-    echo "  Node port:       ${NODE_PORT}"
-    if [ -n "$PEERS" ]; then
-        echo "  Peers:           ${PEERS}"
-    fi
+    echo "  docker compose ps       # status"
+    echo "  docker compose logs -f  # logs"
     echo ""
-    echo "  Useful commands:"
-    echo "    cd ${DATA_DIR}"
-    echo "    docker compose ps              # check status"
-    echo "    docker compose logs -f         # view logs"
-    echo "    docker compose restart         # restart"
-    echo "    docker compose down            # stop"
+    echo "  http://localhost:${HTTP_PORT}/live/v1   # live status"
+    echo "  http://localhost:${HTTP_PORT}/query/v1  # query API"
     echo ""
     if [ "$TESTNET" = false ]; then
-        echo -e "  ${YELLOW}[NOTE]${NC} For mainnet, place epoch files in the data volume:"
-        echo "    spectrum.XXX, universe.XXX, contract0000.XXX"
-        echo "    Get peers from: https://app.qubic.li/network/live"
+        echo -e "  ${YELLOW}[!]${NC} mainnet: place epoch files in data volume"
+        echo "      spectrum.XXX, universe.XXX, contract0000.XXX ..."
         echo ""
     fi
 }
 
 print_status_manual() {
-    local mode_label="Mainnet"
-    if [ "$TESTNET" = true ]; then
-        mode_label="Testnet"
-    fi
+    local mode_label="mainnet"
+    [ "$TESTNET" = true ] && mode_label="testnet"
 
     echo ""
-    echo -e "${GREEN}=============================================${NC}"
-    echo -e "${GREEN}  Lite Node Installation Complete${NC}"
-    echo -e "${GREEN}=============================================${NC}"
+    echo -e "${GREEN}--- lite node ready (${mode_label}) ---${NC}"
+    echo "  binary:   ${DATA_DIR}/qubic-core-lite/build/src/Qubic"
+    echo "  workdir:  ${DATA_DIR}/data"
+    echo "  service:  qubic-lite"
+    echo "  P2P:      ${NODE_PORT}"
+    echo "  HTTP/RPC: http://localhost:${HTTP_PORT}"
+    [ -n "$PEERS" ] && echo "  peers:    ${PEERS}"
     echo ""
-    echo "  Mode:            ${mode_label}"
-    echo "  Binary:          ${DATA_DIR}/qubic-core-lite/build/src/Qubic"
-    echo "  Working dir:     ${DATA_DIR}/data"
-    echo "  Service name:    qubic-lite"
-    echo "  Node port:       ${NODE_PORT}"
-    if [ -n "$PEERS" ]; then
-        echo "  Peers:           ${PEERS}"
-    fi
+    echo "  systemctl status qubic-lite    # status"
+    echo "  journalctl -u qubic-lite -f    # logs"
     echo ""
-    echo "  Useful commands:"
-    echo "    systemctl status qubic-lite     # check status"
-    echo "    journalctl -u qubic-lite -f     # view logs"
-    echo "    systemctl restart qubic-lite    # restart"
-    echo "    systemctl stop qubic-lite       # stop"
+    echo "  http://localhost:${HTTP_PORT}/live/v1   # live status"
+    echo "  http://localhost:${HTTP_PORT}/query/v1  # query API"
     echo ""
     if [ "$TESTNET" = false ]; then
-        echo -e "  ${YELLOW}[NOTE]${NC} For mainnet, place epoch files in: ${DATA_DIR}/data"
-        echo "    spectrum.XXX, universe.XXX, contract0000.XXX"
-        echo "    Get peers from: https://app.qubic.li/network/live"
+        echo -e "  ${YELLOW}[!]${NC} mainnet: place epoch files in ${DATA_DIR}/data"
+        echo "      spectrum.XXX, universe.XXX, contract0000.XXX ..."
         echo ""
     fi
 }
 
-# =============================================================================
-# Parse Arguments
-# =============================================================================
+# --- arg parsing ---
+
 parse_args() {
     if [ $# -eq 0 ]; then
         print_usage
         exit 1
     fi
 
-    MODE="$1"
-    shift
+    MODE="$1"; shift
 
     while [ $# -gt 0 ]; do
         case "$1" in
-            --peers)
-                PEERS="$2"
-                shift 2
-                ;;
-            --testnet)
-                TESTNET=true
-                shift
-                ;;
-            --port)
-                NODE_PORT="$2"
-                shift 2
-                ;;
-            --data-dir)
-                DATA_DIR="$2"
-                shift 2
-                ;;
-            --avx512)
-                ENABLE_AVX512=true
-                shift
-                ;;
-            --security-tick)
-                SECURITY_TICK="$2"
-                shift 2
-                ;;
-            --ticking-delay)
-                TICKING_DELAY="$2"
-                shift 2
-                ;;
-            --help|-h)
-                print_usage
-                exit 0
-                ;;
-            *)
-                log_error "Unknown option: $1"
-                print_usage
-                exit 1
-                ;;
+            --peers)         PEERS="$2";         shift 2 ;;
+            --testnet)       TESTNET=true;       shift   ;;
+            --port)          NODE_PORT="$2";      shift 2 ;;
+            --http-port)     HTTP_PORT="$2";      shift 2 ;;
+            --data-dir)      DATA_DIR="$2";       shift 2 ;;
+            --avx512)        ENABLE_AVX512=true;  shift   ;;
+            --security-tick) SECURITY_TICK="$2";  shift 2 ;;
+            --ticking-delay) TICKING_DELAY="$2";  shift 2 ;;
+            --help|-h)       print_usage;         exit 0  ;;
+            *) log_error "unknown option: $1"; print_usage; exit 1 ;;
         esac
     done
 }
 
-# =============================================================================
-# Main
-# =============================================================================
+# --- main ---
+
 main() {
-    print_banner
+    echo -e "${CYAN}=== qubic lite node installer ===${NC}"
     parse_args "$@"
     check_root
     check_system
 
     case "$MODE" in
-        docker)
-            install_docker
-            ;;
-        manual)
-            install_manual
-            ;;
-        *)
-            log_error "Unknown mode: ${MODE}"
-            print_usage
-            exit 1
-            ;;
+        docker) install_docker ;;
+        manual) install_manual ;;
+        *) log_error "unknown mode: ${MODE}"; print_usage; exit 1 ;;
     esac
 }
 
