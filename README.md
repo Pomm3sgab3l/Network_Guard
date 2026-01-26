@@ -16,9 +16,10 @@ Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightwe
 6. [Firewall](#6-firewall)
 7. [Maintenance](#7-maintenance)
 8. [Uninstall](#8-uninstall)
-   a. [Docker](#a-docker-standalone--compose)
-   b. [Manual / systemd](#b-manual-systemd)
-   c. [Firewall reset](#c-firewall-reset)
+   a. [Docker via install script](#a-docker-via-install-script-section-2)
+   b. [Docker via manual setup](#b-docker-via-manual-setup-section-3)
+   c. [Build from source / systemd](#c-build-from-source--systemd-section-4)
+   d. [Firewall reset](#d-firewall-reset)
 9. [Troubleshooting](#9-troubleshooting)
 
 **Lite Node**
@@ -55,6 +56,22 @@ Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightwe
 | Disk | 100 GB SSD |
 | OS | Ubuntu 24.04 |
 
+**Prerequisites:**
+
+| Method | You need |
+|--------|----------|
+| Quick Start (section 2) | `wget`, `bash` -- the script installs Docker if missing |
+| Docker: Manual Setup (section 3) | [Docker](https://docs.docker.com/engine/install/) + [Docker Compose](https://docs.docker.com/compose/install/) already installed |
+| Build from Source (section 4) | `build-essential`, `cmake`, `git` + KeyDB + KVRocks |
+
+**Which method should I use?**
+
+| Method | Best for | Difficulty |
+|--------|----------|------------|
+| **Quick Start** (section 2) | Most users. Script handles everything. | Easy |
+| **Docker: Manual Setup** (section 3) | Users who want full control over docker-compose. | Medium |
+| **Build from Source** (section 4) | Advanced users / development. | Advanced |
+
 ## 2. Quick Start
 
 ```bash
@@ -80,12 +97,16 @@ chmod +x bob-install.sh
 
 **Verify:**
 
+If you used `docker-standalone` or `docker-compose`:
+
 ```bash
-# docker (standalone or compose)
 docker compose ps                        # container status
 docker compose logs -f                   # live log output
+```
 
-# systemd (manual install)
+If you used `manual`:
+
+```bash
 systemctl status qubic-bob
 journalctl -u qubic-bob -f              # live log output
 ```
@@ -96,30 +117,43 @@ If you don't want to use the script, pick one of the options below. Copy, paste,
 
 **Option A: Standalone** (bob + redis + kvrocks in one container)
 
-> Docker and Docker Compose must be installed. Ports `21842` (P2P) and `40420` (API) must be reachable.
+**Step 1** -- Create directory and download files:
 
 ```bash
 mkdir -p ~/qubic-bob && cd ~/qubic-bob
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/docker-compose.standalone.yml
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/bob.json.standalone
 mv bob.json.standalone bob.json
-nano bob.json                # at minimum set trusted-node (see section 5)
 ```
 
-To make the container use your edited `bob.json`, mount it as a volume. Add (or uncomment) the following line under `volumes:` in `docker-compose.standalone.yml`:
+**Step 2** -- Edit `bob.json`. At minimum set `trusted-node` (see section 5 for all options):
+
+```bash
+nano bob.json
+```
+
+**Step 3** -- Mount your config into the container. Open `docker-compose.standalone.yml` and add (or uncomment) this line under `volumes:`:
+
+```bash
+nano docker-compose.standalone.yml
+```
+
+Add this:
 
 ```yaml
     volumes:
       - ./bob.json:/data/bob/bob.json:ro
 ```
 
-Then start:
+> Without this step, the container ignores your edited `bob.json` and uses its built-in defaults.
+
+**Step 4** -- Start:
 
 ```bash
 docker compose -f docker-compose.standalone.yml up -d
 ```
 
-**Verify:**
+**Step 5** -- Verify:
 
 ```bash
 docker ps                                # container running?
@@ -128,57 +162,80 @@ docker logs -f qubic-bob-standalone      # live log output
 
 **Option B: Modular** (separate containers for bob, keydb, kvrocks)
 
+**Step 1** -- Create directory and download files:
+
 ```bash
 mkdir -p ~/qubic-bob && cd ~/qubic-bob
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/docker-compose.yml
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/bob.json
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/keydb.conf
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/kvrocks.conf
-nano bob.json                # at minimum set trusted-node (see section 5)
+```
+
+**Step 2** -- Edit `bob.json`. At minimum set `trusted-node` (see section 5 for all options):
+
+```bash
+nano bob.json
+```
+
+> For Compose use the hostnames `keydb` / `kvrocks` instead of `127.0.0.1` in `keydb-url` and `kvrocks-url`.
+
+**Step 3** -- Start:
+
+```bash
 docker compose up -d
 ```
 
-**Verify:**
+**Step 4** -- Verify:
 
 ```bash
 docker compose ps                        # all containers running?
 docker compose logs -f                   # live log output
 ```
 
-> In `bob.json` set at least `trusted-node` with a peer, e.g. `["1.2.3.4:21841"]`.
-> For Compose use the hostnames `keydb` / `kvrocks` instead of `127.0.0.1`.
-
 Ports: `21842` (P2P), `40420` (REST API)
 
 ## 4. Build from Source
 
+> You also need KeyDB and KVRocks running. See [KeyDB install](https://github.com/krypdkat/qubicbob/blob/master/KEYDB_INSTALL.md) / [KVRocks install](https://github.com/krypdkat/qubicbob/blob/master/KVROCKS_INSTALL.MD), or use the install script (`bob-install.sh manual`) which handles this automatically.
+
+**Step 1** -- Install build dependencies:
+
 ```bash
 sudo apt update && sudo apt install -y build-essential cmake git \
     libjsoncpp-dev uuid-dev libhiredis-dev zlib1g-dev
+```
 
+**Step 2** -- Clone and build:
+
+```bash
 git clone https://github.com/krypdkat/qubicbob.git && cd qubicbob
 mkdir build && cd build
 cmake ../ && make -j$(nproc)
+```
 
+**Step 3** -- Create and edit config (set `trusted-node`, `keydb-url`, `kvrocks-url` etc.):
+
+```bash
 cp ../default_config_bob.json ./config.json
-nano config.json        # set trusted-node, keydb-url, kvrocks-url etc.
+nano config.json
+```
 
-# run in tmux so it survives disconnect
+**Step 4** -- Run (in tmux so it survives disconnect):
+
+```bash
 tmux new -s bob "./bob ./config.json"
 ```
 
-**Verify:**
+**Step 5** -- Verify:
 
 ```bash
-# tmux: output is visible directly in the session
-tmux attach -t bob                       # re-attach if detached
+tmux attach -t bob                       # re-attach to see output
 
-# systemd (if installed via script):
+# or if installed via script (systemd):
 systemctl status qubic-bob
 journalctl -u qubic-bob -f              # live log output
 ```
-
-You also need KeyDB and KVRocks running - see [KeyDB install](https://github.com/krypdkat/qubicbob/blob/master/KEYDB_INSTALL.md) / [KVRocks install](https://github.com/krypdkat/qubicbob/blob/master/KVROCKS_INSTALL.MD). The install script (`bob-install.sh manual`) handles this automatically.
 
 ## 5. Configuration
 
@@ -248,18 +305,39 @@ sudo ufw status
 
 ## 7. Maintenance
 
+Pick the section that matches how you installed.
+
+**Docker** (section 2 or 3):
+
+Update to latest image:
+
 ```bash
-# docker: update
 docker compose pull && docker compose up -d
+```
 
-# docker: stop / reset
-docker compose down                                     # stop
-docker compose down && docker volume rm qubic-bob-redis qubic-bob-kvrocks qubic-bob-data  # full reset
+Stop all containers:
 
-# systemd: restart
+```bash
+docker compose down
+```
+
+Full reset (deletes all data):
+
+```bash
+docker compose down && docker volume rm qubic-bob-redis qubic-bob-kvrocks qubic-bob-data
+```
+
+**Build from source / systemd** (section 4):
+
+Restart:
+
+```bash
 sudo systemctl restart qubic-bob
+```
 
-# source: update + restart
+Update source and rebuild:
+
+```bash
 cd /opt/qubic-bob/qubicbob && git pull
 cd build && cmake ../ && make -j$(nproc)
 sudo systemctl restart qubic-bob
@@ -267,15 +345,42 @@ sudo systemctl restart qubic-bob
 
 ## 8. Uninstall
 
-### a. Docker (standalone / compose)
+Pick the section that matches how you installed.
+
+### a. Docker via install script (section 2)
 
 ```bash
 cd /opt/qubic-bob
 docker compose down -v              # stop containers + delete volumes
-cd / && rm -rf /opt/qubic-bob       # remove install directory
 ```
 
-### b. Manual (systemd)
+```bash
+rm -rf /opt/qubic-bob               # remove install directory
+```
+
+### b. Docker via manual setup (section 3)
+
+If you used **Option A (Standalone)**:
+
+```bash
+cd ~/qubic-bob
+docker compose -f docker-compose.standalone.yml down -v
+```
+
+If you used **Option B (Modular)**:
+
+```bash
+cd ~/qubic-bob
+docker compose down -v
+```
+
+Remove install directory:
+
+```bash
+rm -rf ~/qubic-bob
+```
+
+### c. Build from source / systemd (section 4)
 
 **Remove Bob service:**
 
@@ -301,7 +406,7 @@ sudo systemctl daemon-reload
 rm -rf /opt/qubic-bob
 ```
 
-### c. Firewall reset
+### d. Firewall reset
 
 ```bash
 sudo ufw disable
@@ -366,18 +471,22 @@ chmod +x lite-install.sh
 
 **Verify:**
 
-```bash
-# docker
-docker logs -f qubic-lite               # live log output
+If you used `docker`:
 
-# systemd (manual install)
+```bash
+docker logs -f qubic-lite               # live log output
+```
+
+If you used `manual`:
+
+```bash
 systemctl status qubic-lite
 journalctl -u qubic-lite -f             # live log output
 ```
 
 ## 12. Docker: Manual Setup
 
-Dockerfile for building from source:
+**Step 1** -- Save this Dockerfile (builds from source inside the container):
 
 ```dockerfile
 FROM ubuntu:24.04 AS builder
@@ -406,22 +515,34 @@ EXPOSE 21841 41841
 ENTRYPOINT ["./Qubic"]
 ```
 
+**Step 2** -- Build the image:
+
 ```bash
 docker build -t qubic-lite-node .
+```
 
-# testnet
+**Step 3** -- Run (pick testnet or mainnet):
+
+Testnet:
+
+```bash
 docker run -d --name qubic-lite --restart unless-stopped \
     -p 21841:21841 -p 41841:41841 \
     qubic-lite-node --security-tick 32 --ticking-delay 1000
+```
 
-# mainnet (mount data dir for epoch files)
+Mainnet (mount data dir for epoch files):
+
+```bash
 docker run -d --name qubic-lite --restart unless-stopped \
     -p 21841:21841 -p 41841:41841 \
     -v ~/qubic-data:/qubic/data \
     qubic-lite-node --peers PEER_IP_1,PEER_IP_2,PEER_IP_3
 ```
 
-**Verify:**
+> Mainnet needs epoch files (`spectrum.XXX`, `universe.XXX`, `contract0000.XXX` ...) in the data volume.
+
+**Step 4** -- Verify:
 
 ```bash
 docker ps                                # container running?
@@ -430,30 +551,42 @@ docker logs -f qubic-lite                # live log output
 
 Ports: `21841` (P2P), `41841` (HTTP/RPC)
 
-Mainnet needs epoch files (`spectrum.XXX`, `universe.XXX`, `contract0000.XXX` ...) in the data volume.
-
 ## 13. Build from Source
+
+**Step 1** -- Install build dependencies:
 
 ```bash
 sudo apt update && sudo apt install -y build-essential clang cmake nasm git g++ \
     libc++-dev libc++abi-dev libjsoncpp-dev uuid-dev zlib1g-dev \
     libstdc++-12-dev libfmt-dev
+```
 
+**Step 2** -- Clone and build:
+
+```bash
 git clone https://github.com/hackerby888/qubic-core-lite.git && cd qubic-core-lite
 mkdir -p build && cd build
 cmake .. -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
     -DBUILD_TESTS=OFF -DBUILD_BINARY=ON \
     -DCMAKE_BUILD_TYPE=Release -DENABLE_AVX512=OFF
 cmake --build . -- -j$(nproc)
+```
 
-# testnet
+**Step 3** -- Run (pick testnet or mainnet):
+
+Testnet:
+
+```bash
 ./src/Qubic --security-tick 32 --ticking-delay 1000
+```
 
-# mainnet
+Mainnet:
+
+```bash
 ./src/Qubic --peers PEER_IP_1,PEER_IP_2,PEER_IP_3
 ```
 
-**Verify:**
+**Step 4** -- Verify:
 
 ```bash
 # systemd (if installed via script):
@@ -461,7 +594,7 @@ systemctl status qubic-lite
 journalctl -u qubic-lite -f             # live log output
 ```
 
-The install script (`lite-install.sh manual`) sets up systemd so the node starts on boot.
+> The install script (`lite-install.sh manual`) sets up systemd so the node starts on boot.
 
 ## 14. CLI Arguments & Config
 
@@ -492,17 +625,33 @@ http://localhost:41841/query/v1   # query API
 
 ## 16. Maintenance
 
+Pick the section that matches how you installed.
+
+**Docker** (section 11 or 12):
+
+Rebuild and restart:
+
 ```bash
-# docker: rebuild + restart
 docker build -t qubic-lite-node . && docker compose up -d
+```
 
-# docker: stop
+Stop and remove container:
+
+```bash
 docker stop qubic-lite && docker rm qubic-lite
+```
 
-# systemd: restart
+**Build from source / systemd** (section 13):
+
+Restart:
+
+```bash
 sudo systemctl restart qubic-lite
+```
 
-# source: update + restart
+Update source and rebuild:
+
+```bash
 cd /opt/qubic-lite/qubic-core-lite && git pull
 cd build && cmake .. -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
     -DBUILD_TESTS=OFF -DBUILD_BINARY=ON -DCMAKE_BUILD_TYPE=Release -DENABLE_AVX512=OFF
