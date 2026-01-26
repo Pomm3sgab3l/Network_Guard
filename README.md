@@ -15,7 +15,7 @@ Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightwe
 ### Quick start (script)
 
 ```bash
-wget -O bob-install.sh https://raw.githubusercontent.com/pomm3s/Network_Guard/main/scripts/bob-install.sh
+wget -O bob-install.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob-install.sh
 chmod +x bob-install.sh
 
 # pick one:
@@ -138,7 +138,7 @@ sudo systemctl restart qubic-bob
 ### Quick start (script)
 
 ```bash
-wget -O lite-install.sh https://raw.githubusercontent.com/pomm3s/Network_Guard/main/scripts/lite-install.sh
+wget -O lite-install.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite-install.sh
 chmod +x lite-install.sh
 
 # docker
