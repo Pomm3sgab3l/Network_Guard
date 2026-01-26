@@ -197,8 +197,6 @@ Ports: `21842` (P2P), `40420` (REST API)
 
 ## 4. Build from Source
 
-> You also need KeyDB and KVRocks running. See [KeyDB install](https://github.com/krypdkat/qubicbob/blob/master/KEYDB_INSTALL.md) / [KVRocks install](https://github.com/krypdkat/qubicbob/blob/master/KVROCKS_INSTALL.MD), or use the install script (`bob-install.sh manual`) which handles this automatically.
-
 **Step 1** -- Install build dependencies:
 
 ```bash
@@ -206,7 +204,65 @@ sudo apt update && sudo apt install -y build-essential cmake git \
     libjsoncpp-dev uuid-dev libhiredis-dev zlib1g-dev
 ```
 
-**Step 2** -- Clone and build:
+**Step 2** -- Install and start KeyDB (Redis-compatible database):
+
+```bash
+echo "deb https://download.keydb.dev/open-source-dist $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/keydb.list
+sudo wget -qO - https://download.keydb.dev/open-source-dist/keyring.gpg | sudo gpg --dearmor -o /usr/share/keyrings/keydb-archive-keyring.gpg
+sudo sed -i 's|^deb |deb [signed-by=/usr/share/keyrings/keydb-archive-keyring.gpg] |' /etc/apt/sources.list.d/keydb.list
+sudo apt update && sudo apt install -y keydb
+sudo systemctl enable --now keydb-server
+```
+
+Verify KeyDB is running:
+
+```bash
+keydb-cli ping
+```
+
+> Expected output: `PONG`
+
+**Step 3** -- Install and start KVRocks (persistent key-value store):
+
+```bash
+sudo apt install -y gcc g++ make libsnappy-dev autoconf
+git clone --branch v2.9.0 https://github.com/apache/kvrocks.git /tmp/kvrocks
+cd /tmp/kvrocks
+./x.py build
+sudo cp build/kvrocks /usr/local/bin/
+```
+
+Create systemd service:
+
+```bash
+sudo tee /etc/systemd/system/kvrocks.service > /dev/null <<'EOF'
+[Unit]
+Description=KVRocks
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/kvrocks -c /etc/kvrocks/kvrocks.conf
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo mkdir -p /etc/kvrocks /var/lib/kvrocks
+sudo kvrocks --config-dump > /etc/kvrocks/kvrocks.conf 2>/dev/null || true
+sudo systemctl daemon-reload
+sudo systemctl enable --now kvrocks
+```
+
+Verify KVRocks is running:
+
+```bash
+redis-cli -p 6666 ping
+```
+
+> Expected output: `PONG`
+
+**Step 4** -- Clone and build Bob:
 
 ```bash
 git clone https://github.com/krypdkat/qubicbob.git && cd qubicbob
@@ -214,14 +270,14 @@ mkdir build && cd build
 cmake ../ && make -j$(nproc)
 ```
 
-**Step 3** -- Create and edit config (set `trusted-node`, `keydb-url`, `kvrocks-url` etc.):
+**Step 5** -- Create and edit config (set `trusted-node` etc.):
 
 ```bash
 cp ../default_config_bob.json ./config.json
 nano config.json
 ```
 
-**Step 4** -- Run (in tmux so it survives disconnect):
+**Step 6** -- Run (in tmux so it survives disconnect):
 
 ```bash
 tmux new -s bob "./bob ./config.json"
@@ -229,7 +285,7 @@ tmux new -s bob "./bob ./config.json"
 
 > To detach from tmux (leave it running in background): press `Ctrl+B`, then `D`.
 
-**Step 5** -- Verify:
+**Step 7** -- Verify:
 
 ```bash
 tmux attach -t bob                       # re-attach to see output
