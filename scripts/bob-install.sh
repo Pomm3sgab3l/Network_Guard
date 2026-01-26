@@ -14,6 +14,7 @@
 #   --rpc-port <port>       REST API port (default: 40420)
 #   --server-port <port>    P2P port (default: 21842)
 #   --data-dir <path>       install dir (default: /opt/qubic-bob)
+#   --firewall <mode>       firewall profile: closed | open
 
 set -e
 
@@ -28,6 +29,7 @@ REPO_URL="https://github.com/krypdkat/qubicbob.git"
 DOCKER_IMAGE="j0et0m/qubic-bob"
 DOCKER_IMAGE_STANDALONE="j0et0m/qubic-bob-standalone"
 ARBITRATOR_ID="AFZPUAIYVPNUYGJRQVLUKOPPVLHAZQTGLYAAUUNBXFTVTAMSBKQBLEIEPCVJ"
+FIREWALL_MODE=""
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -50,6 +52,9 @@ print_usage() {
     echo "  --rpc-port <port>      REST API port (default: 40420)"
     echo "  --server-port <port>   P2P port (default: 21842)"
     echo "  --data-dir <path>      install dir (default: /opt/qubic-bob)"
+    echo "  --firewall <mode>      firewall profile: closed | open"
+    echo "                           closed = SSH + P2P only (recommended)"
+    echo "                           open   = SSH + P2P + API"
 }
 
 check_root() {
@@ -77,6 +82,48 @@ check_system() {
     [ "$cores" -lt 4 ] && log_warn "CPU: ${cores} cores (need 4)" || log_ok "CPU: ${cores} cores"
     grep -q avx2 /proc/cpuinfo && log_ok "AVX2: yes" || log_warn "AVX2: not detected"
     [ "$avail_gb" -lt 100 ] && log_warn "Disk: ${avail_gb}GB (need 100GB)" || log_ok "Disk: ${avail_gb}GB"
+}
+
+# --- firewall ---
+
+setup_firewall() {
+    if [ -z "$FIREWALL_MODE" ]; then
+        return
+    fi
+
+    log_info "configuring firewall (${FIREWALL_MODE})..."
+
+    if ! command -v ufw &> /dev/null; then
+        log_info "installing ufw..."
+        apt-get update -qq && apt-get install -y -qq ufw > /dev/null
+    fi
+
+    # reset to clean state
+    ufw --force reset > /dev/null 2>&1
+
+    # default policy: block incoming, allow outgoing
+    ufw default deny incoming > /dev/null 2>&1
+    ufw default allow outgoing > /dev/null 2>&1
+
+    # always allow SSH
+    ufw allow 22/tcp > /dev/null 2>&1
+    log_ok "fw: allow SSH (22/tcp)"
+
+    # always allow P2P
+    ufw allow "${SERVER_PORT}/tcp" > /dev/null 2>&1
+    log_ok "fw: allow P2P (${SERVER_PORT}/tcp)"
+
+    # API only in open mode
+    if [ "$FIREWALL_MODE" = "open" ]; then
+        ufw allow "${RPC_PORT}/tcp" > /dev/null 2>&1
+        log_ok "fw: allow API (${RPC_PORT}/tcp)"
+    else
+        log_ok "fw: block API (${RPC_PORT}/tcp) -- closed mode"
+    fi
+
+    # enable firewall
+    ufw --force enable > /dev/null 2>&1
+    log_ok "fw: enabled ($(ufw status | head -1))"
 }
 
 # --- config generation ---
@@ -375,6 +422,9 @@ print_status_docker() {
     echo "  config:  ${DATA_DIR}/bob.json"
     echo "  P2P:     ${SERVER_PORT}"
     echo "  API:     http://localhost:${RPC_PORT}"
+    if [ -n "$FIREWALL_MODE" ]; then
+        echo "  FW:      ${FIREWALL_MODE}"
+    fi
     echo ""
     echo "  docker compose ps       # status"
     echo "  docker compose logs -f  # logs"
@@ -390,6 +440,9 @@ print_status_manual() {
     echo "  service: qubic-bob"
     echo "  P2P:     ${SERVER_PORT}"
     echo "  API:     http://localhost:${RPC_PORT}"
+    if [ -n "$FIREWALL_MODE" ]; then
+        echo "  FW:      ${FIREWALL_MODE}"
+    fi
     echo ""
     echo "  systemctl status qubic-bob    # status"
     echo "  journalctl -u qubic-bob -f    # logs"
@@ -413,6 +466,7 @@ parse_args() {
             --rpc-port)    RPC_PORT="$2";    shift 2 ;;
             --server-port) SERVER_PORT="$2"; shift 2 ;;
             --data-dir)    DATA_DIR="$2";    shift 2 ;;
+            --firewall)    FIREWALL_MODE="$2"; shift 2 ;;
             --help|-h)     print_usage;      exit 0  ;;
             *) log_error "unknown option: $1"; print_usage; exit 1 ;;
         esac
@@ -425,6 +479,12 @@ main() {
     echo -e "${CYAN}=== qubic bob node installer ===${NC}"
     parse_args "$@"
     check_root
+
+    if [ -n "$FIREWALL_MODE" ] && [ "$FIREWALL_MODE" != "closed" ] && [ "$FIREWALL_MODE" != "open" ]; then
+        log_error "unknown firewall mode: ${FIREWALL_MODE} (use: closed | open)"
+        exit 1
+    fi
+
     check_system
 
     case "$MODE" in
@@ -433,6 +493,8 @@ main() {
         manual)            install_manual ;;
         *) log_error "unknown mode: ${MODE}"; print_usage; exit 1 ;;
     esac
+
+    setup_firewall
 }
 
 main "$@"

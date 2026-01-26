@@ -24,7 +24,7 @@ chmod +x bob-install.sh
 ./bob-install.sh manual --peers 1.2.3.4:21841 --threads 8      # build from source + systemd
 ```
 
-Options: `--peers`, `--threads` (0=auto), `--rpc-port` (40420), `--server-port` (21842), `--data-dir` (/opt/qubic-bob)
+Options: `--peers`, `--threads` (0=auto), `--rpc-port` (40420), `--server-port` (21842), `--data-dir` (/opt/qubic-bob), `--firewall` (closed|open)
 
 ### Docker (manual setup)
 
@@ -121,6 +121,71 @@ systemctl restart qubic-bob
 cd /opt/qubic-bob/qubicbob && git pull
 cd build && cmake ../ && make -j$(nproc)
 sudo systemctl restart qubic-bob
+```
+
+### Firewall
+
+The install script can configure `ufw` to lock down the server. Use `--firewall` with a profile:
+
+| Profile | Ports allowed | Use case |
+|---------|---------------|----------|
+| `closed` | SSH (22) + P2P (21842) | Node syncs with the network, API only reachable locally |
+| `open` | SSH (22) + P2P (21842) + API (40420) | API accessible from outside |
+
+```bash
+# recommended: closed firewall (API not exposed)
+./bob-install.sh docker-standalone --firewall closed
+
+# open: API accessible from outside
+./bob-install.sh docker-standalone --firewall open
+```
+
+Without `--firewall` no firewall rules are changed.
+
+**Manual ufw setup** (if you didn't use `--firewall`):
+
+```bash
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 22/tcp                # SSH
+sudo ufw allow 21842/tcp             # P2P
+# sudo ufw allow 40420/tcp           # API (uncomment if needed)
+sudo ufw enable
+sudo ufw status
+```
+
+### Uninstall
+
+**Docker (standalone / compose):**
+
+```bash
+cd /opt/qubic-bob
+docker compose down -v              # stop containers + delete volumes
+cd / && rm -rf /opt/qubic-bob       # remove install directory
+```
+
+**Manual (systemd):**
+
+```bash
+sudo systemctl stop qubic-bob
+sudo systemctl disable qubic-bob
+sudo rm /etc/systemd/system/qubic-bob.service
+sudo systemctl daemon-reload
+
+# optional: remove keydb + kvrocks
+sudo systemctl stop keydb-server kvrocks
+sudo systemctl disable keydb-server kvrocks
+sudo rm -f /etc/systemd/system/kvrocks.service
+sudo systemctl daemon-reload
+
+rm -rf /opt/qubic-bob               # remove install directory
+```
+
+**Firewall reset:**
+
+```bash
+sudo ufw disable
+sudo ufw --force reset
 ```
 
 ---
