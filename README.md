@@ -227,6 +227,8 @@ nano config.json
 tmux new -s bob "./bob ./config.json"
 ```
 
+> To detach from tmux (leave it running in background): press `Ctrl+B`, then `D`.
+
 **Step 5** -- Verify:
 
 ```bash
