@@ -277,6 +277,8 @@ cp ../default_config_bob.json ./config.json
 nano config.json
 ```
 
+> **Optional:** You can pre-download blockchain data from [storage.qubic.li/network](https://storage.qubic.li/network/) before starting Bob. This speeds up initial sync significantly.
+
 **Step 6** -- Run (in tmux so it survives disconnect):
 
 ```bash
