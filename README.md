@@ -78,19 +78,52 @@ chmod +x bob-install.sh
 | `--data-dir <path>` | /opt/qubic-bob | Install directory |
 | `--firewall <mode>` | none | Firewall profile: `closed` or `open` |
 
+**Verify:**
+
+```bash
+# docker (standalone or compose)
+docker compose ps                        # container status
+docker compose logs -f                   # live log output
+
+# systemd (manual install)
+systemctl status qubic-bob
+journalctl -u qubic-bob -f              # live log output
+```
+
 ## 3. Docker: Manual Setup
 
 If you don't want to use the script, pick one of the options below. Copy, paste, done.
 
 **Option A: Standalone** (bob + redis + kvrocks in one container)
 
+> Docker und Docker Compose müssen installiert sein. Ports `21842` (P2P) und `40420` (API) müssen erreichbar sein.
+
 ```bash
 mkdir -p ~/qubic-bob && cd ~/qubic-bob
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/docker-compose.standalone.yml
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/bob.json.standalone
 mv bob.json.standalone bob.json
-nano bob.json
+nano bob.json                # mindestens trusted-node setzen (siehe Abschnitt 5)
+```
+
+Damit der Container die bearbeitete `bob.json` auch verwendet, muss sie als Volume gemountet werden. Füge in `docker-compose.standalone.yml` unter `volumes:` folgende Zeile ein (oder kommentiere sie ein):
+
+```yaml
+    volumes:
+      - ./bob.json:/data/bob/bob.json:ro
+```
+
+Dann starten:
+
+```bash
 docker compose -f docker-compose.standalone.yml up -d
+```
+
+**Verify:**
+
+```bash
+docker ps                                # container running?
+docker logs -f qubic-bob-standalone      # live log output
 ```
 
 **Option B: Modular** (separate containers for bob, keydb, kvrocks)
@@ -101,11 +134,19 @@ curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/exampl
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/bob.json
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/keydb.conf
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/kvrocks.conf
-nano bob.json
+nano bob.json                # mindestens trusted-node setzen (siehe Abschnitt 5)
 docker compose up -d
 ```
 
-> In `bob.json` mindestens `trusted-node` mit einem Peer setzen, z.B. `["1.2.3.4:21841"]`
+**Verify:**
+
+```bash
+docker compose ps                        # all containers running?
+docker compose logs -f                   # live log output
+```
+
+> In `bob.json` mindestens `trusted-node` mit einem Peer setzen, z.B. `["1.2.3.4:21841"]`.
+> Bei Compose die Hostnamen `keydb` / `kvrocks` statt `127.0.0.1` verwenden.
 
 Ports: `21842` (P2P), `40420` (REST API)
 
@@ -124,6 +165,17 @@ nano config.json        # set trusted-node, keydb-url, kvrocks-url etc.
 
 # run in tmux so it survives disconnect
 tmux new -s bob "./bob ./config.json"
+```
+
+**Verify:**
+
+```bash
+# tmux: output is visible directly in the session
+tmux attach -t bob                       # re-attach if detached
+
+# systemd (if installed via script):
+systemctl status qubic-bob
+journalctl -u qubic-bob -f              # live log output
 ```
 
 You also need KeyDB and KVRocks running - see [KeyDB install](https://github.com/krypdkat/qubicbob/blob/master/KEYDB_INSTALL.md) / [KVRocks install](https://github.com/krypdkat/qubicbob/blob/master/KVROCKS_INSTALL.MD). The install script (`bob-install.sh manual`) handles this automatically.
@@ -197,19 +249,17 @@ sudo ufw status
 ## 7. Maintenance
 
 ```bash
-# docker
-docker compose ps                                       # status
-docker compose logs -f                                  # logs
-docker compose pull && docker compose up -d             # update
+# docker: update
+docker compose pull && docker compose up -d
+
+# docker: stop / reset
 docker compose down                                     # stop
-docker compose down && docker volume rm qubic-bob-redis qubic-bob-kvrocks qubic-bob-data  # reset
+docker compose down && docker volume rm qubic-bob-redis qubic-bob-kvrocks qubic-bob-data  # full reset
 
-# systemd (manual install)
-systemctl status qubic-bob
-journalctl -u qubic-bob -f
-systemctl restart qubic-bob
+# systemd: restart
+sudo systemctl restart qubic-bob
 
-# update from source
+# source: update + restart
 cd /opt/qubic-bob/qubicbob && git pull
 cd build && cmake ../ && make -j$(nproc)
 sudo systemctl restart qubic-bob
@@ -305,6 +355,17 @@ chmod +x lite-install.sh
 | `--security-tick <n>` | 32 | Quorum bypass interval (testnet) |
 | `--ticking-delay <n>` | 1000 | Tick processing delay in ms |
 
+**Verify:**
+
+```bash
+# docker
+docker logs -f qubic-lite               # live log output
+
+# systemd (manual install)
+systemctl status qubic-lite
+journalctl -u qubic-lite -f             # live log output
+```
+
 ## 12. Docker: Manual Setup
 
 Dockerfile for building from source:
@@ -351,6 +412,13 @@ docker run -d --name qubic-lite --restart unless-stopped \
     qubic-lite-node --peers PEER_IP_1,PEER_IP_2,PEER_IP_3
 ```
 
+**Verify:**
+
+```bash
+docker ps                                # container running?
+docker logs -f qubic-lite                # live log output
+```
+
 Ports: `21841` (P2P), `41841` (HTTP/RPC)
 
 Mainnet needs epoch files (`spectrum.XXX`, `universe.XXX`, `contract0000.XXX` ...) in the data volume.
@@ -374,6 +442,14 @@ cmake --build . -- -j$(nproc)
 
 # mainnet
 ./src/Qubic --peers PEER_IP_1,PEER_IP_2,PEER_IP_3
+```
+
+**Verify:**
+
+```bash
+# systemd (if installed via script):
+systemctl status qubic-lite
+journalctl -u qubic-lite -f             # live log output
 ```
 
 The install script (`lite-install.sh manual`) sets up systemd so the node starts on boot.
@@ -408,16 +484,16 @@ http://localhost:41841/query/v1   # query API
 ## 16. Maintenance
 
 ```bash
-# docker
-docker compose ps / logs -f / restart / down
-docker build -t qubic-lite-node . && docker compose up -d   # rebuild
+# docker: rebuild + restart
+docker build -t qubic-lite-node . && docker compose up -d
 
-# systemd (manual install)
-systemctl status qubic-lite
-journalctl -u qubic-lite -f
-systemctl restart qubic-lite
+# docker: stop
+docker stop qubic-lite && docker rm qubic-lite
 
-# update from source
+# systemd: restart
+sudo systemctl restart qubic-lite
+
+# source: update + restart
 cd /opt/qubic-lite/qubic-core-lite && git pull
 cd build && cmake .. -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
     -DBUILD_TESTS=OFF -DBUILD_BINARY=ON -DCMAKE_BUILD_TYPE=Release -DENABLE_AVX512=OFF
