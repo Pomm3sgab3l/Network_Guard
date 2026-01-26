@@ -14,6 +14,7 @@
 #   --rpc-port <port>       REST API port (default: 40420)
 #   --server-port <port>    P2P port (default: 21842)
 #   --data-dir <path>       install dir (default: /opt/qubic-bob)
+#   --node-seed <seed>      node identity seed (required)
 #   --firewall <mode>       firewall profile: closed | open
 
 set -e
@@ -30,6 +31,7 @@ DOCKER_IMAGE="j0et0m/qubic-bob"
 DOCKER_IMAGE_STANDALONE="j0et0m/qubic-bob-standalone"
 ARBITRATOR_ID="AFZPUAIYVPNUYGJRQVLUKOPPVLHAZQTGLYAAUUNBXFTVTAMSBKQBLEIEPCVJ"
 FIREWALL_MODE=""
+NODE_SEED=""
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -52,6 +54,7 @@ print_usage() {
     echo "  --rpc-port <port>      REST API port (default: 40420)"
     echo "  --server-port <port>   P2P port (default: 21842)"
     echo "  --data-dir <path>      install dir (default: /opt/qubic-bob)"
+    echo "  --node-seed <seed>     node identity seed (REQUIRED)"
     echo "  --firewall <mode>      firewall profile: closed | open"
     echo "                           closed = SSH + P2P only (recommended)"
     echo "                           open   = SSH + P2P + API"
@@ -154,7 +157,8 @@ generate_config() {
   "tx-storage-mode": "kvrocks",
   "tx_tick_to_live": 10000,
   "max-thread": ${MAX_THREADS},
-  "spam-qu-threshold": 100
+  "spam-qu-threshold": 100,
+  "node-seed": "${NODE_SEED}"
 }
 CONFIGEOF
 
@@ -466,6 +470,7 @@ parse_args() {
             --rpc-port)    RPC_PORT="$2";    shift 2 ;;
             --server-port) SERVER_PORT="$2"; shift 2 ;;
             --data-dir)    DATA_DIR="$2";    shift 2 ;;
+            --node-seed)   NODE_SEED="$2";     shift 2 ;;
             --firewall)    FIREWALL_MODE="$2"; shift 2 ;;
             --help|-h)     print_usage;      exit 0  ;;
             *) log_error "unknown option: $1"; print_usage; exit 1 ;;
@@ -482,6 +487,12 @@ main() {
 
     if [ -n "$FIREWALL_MODE" ] && [ "$FIREWALL_MODE" != "closed" ] && [ "$FIREWALL_MODE" != "open" ]; then
         log_error "unknown firewall mode: ${FIREWALL_MODE} (use: closed | open)"
+        exit 1
+    fi
+
+    if [ -z "$NODE_SEED" ]; then
+        log_error "--node-seed is required. Bob cannot start without a node seed."
+        print_usage
         exit 1
     fi
 

@@ -79,15 +79,16 @@ wget -O bob-install.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Gua
 chmod +x bob-install.sh
 
 # pick one:
-./bob-install.sh docker-standalone                              # all-in-one container
-./bob-install.sh docker-compose --peers 1.2.3.4:21841           # separate containers
-./bob-install.sh manual --peers 1.2.3.4:21841 --threads 8      # build from source + systemd
+./bob-install.sh docker-standalone --node-seed YOUR_SEED                              # all-in-one container
+./bob-install.sh docker-compose --node-seed YOUR_SEED --peers 1.2.3.4:21841           # separate containers
+./bob-install.sh manual --node-seed YOUR_SEED --peers 1.2.3.4:21841 --threads 8      # build from source + systemd
 ```
 
 **Options:**
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--node-seed <seed>` | **required** | Node identity seed -- Bob will not start without it |
 | `--peers <ip:port,...>` | none | Peers to sync from |
 | `--threads <n>` | 0 (auto) | Max threads |
 | `--rpc-port <port>` | 40420 | REST API port |
@@ -126,7 +127,7 @@ curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/exampl
 mv bob.json.standalone bob.json
 ```
 
-**Step 2** -- Edit `bob.json`. At minimum set `trusted-node` (see section 5 for all options):
+**Step 2** -- Edit `bob.json`. You **must** set `node-seed` and `trusted-node` (see section 5 for all options):
 
 ```bash
 nano bob.json
@@ -172,7 +173,7 @@ curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/exampl
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/kvrocks.conf
 ```
 
-**Step 2** -- Edit `bob.json`. At minimum set `trusted-node` (see section 5 for all options):
+**Step 2** -- Edit `bob.json`. You **must** set `node-seed` and `trusted-node` (see section 5 for all options):
 
 ```bash
 nano bob.json
@@ -270,7 +271,7 @@ mkdir build && cd build
 cmake ../ && make -j$(nproc)
 ```
 
-**Step 5** -- Create and edit config (set `trusted-node` etc.):
+**Step 5** -- Create and edit config (you **must** set `node-seed` and `trusted-node`):
 
 ```bash
 cp ../default_config_bob.json ./config.json
@@ -334,7 +335,7 @@ When running with Docker Compose, use container hostnames (`keydb`, `kvrocks`) i
 | `request-cycle-ms` | Polling interval, don't go too low |
 | `tick-storage-mode` / `tx-storage-mode` | Use `kvrocks` for persistence |
 | `max-thread` | 0 = auto |
-| `node-seed` | Seed for the node identity |
+| `node-seed` | **Required.** Seed for the node identity -- Bob will not start without it |
 
 ## 6. Firewall
 
@@ -486,6 +487,7 @@ sudo ufw --force reset
 | Container starts but exits immediately | Check logs: `docker compose logs`. Often missing/invalid `bob.json` |
 | Node not syncing | Verify `trusted-node` peers in `bob.json`. Peers must be reachable on P2P port |
 | KeyDB/KVRocks connection refused | For Docker standalone: uses `127.0.0.1`. For compose: use hostnames `keydb`/`kvrocks` |
+| Bob won't start / crashes immediately | Check that `node-seed` is set in `bob.json` -- it is required |
 | High CPU usage | Set `max-thread` in `bob.json` to limit worker threads |
 | `ufw` blocks SSH after enable | Always allow SSH **before** enabling: `sudo ufw allow 22/tcp` |
 
