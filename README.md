@@ -80,19 +80,23 @@ chmod +x bob-install.sh
 
 ## 3. Docker: Manual Setup
 
-If you don't want to use the script, grab the files from the upstream repo directly:
+If you don't want to use the script, pick one of the options below. Copy, paste, done.
+
+**Option A: Standalone** (bob + redis + kvrocks in one container)
 
 ```bash
 mkdir -p ~/qubic-bob && cd ~/qubic-bob
-
-# standalone (bob + redis + kvrocks in one container)
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/docker-compose.standalone.yml
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/bob.json.standalone
 mv bob.json.standalone bob.json
-nano bob.json                           # add your peers
+nano bob.json
 docker compose -f docker-compose.standalone.yml up -d
+```
 
-# --- OR modular (separate containers) ---
+**Option B: Modular** (separate containers for bob, keydb, kvrocks)
+
+```bash
+mkdir -p ~/qubic-bob && cd ~/qubic-bob
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/docker-compose.yml
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/bob.json
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/keydb.conf
@@ -100,6 +104,8 @@ curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/exampl
 nano bob.json
 docker compose up -d
 ```
+
+> In `bob.json` mindestens `trusted-node` mit einem Peer setzen, z.B. `["1.2.3.4:21841"]`
 
 Ports: `21842` (P2P), `40420` (REST API)
 
