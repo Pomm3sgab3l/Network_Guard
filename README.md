@@ -277,9 +277,11 @@ cp ../default_config_bob.json ./config.json
 nano config.json
 ```
 
-> **Optional:** You can pre-download blockchain data from [storage.qubic.li/network](https://storage.qubic.li/network/) before starting Bob. This speeds up initial sync significantly.
+**Step 6** -- Download blockchain data (spectrum + universe files):
 
-**Step 6** -- Run (in tmux so it survives disconnect):
+Bob needs the current blockchain data to start. Download it from [storage.qubic.li/network](https://storage.qubic.li/network/) and place the files in Bob's data directory.
+
+**Step 7** -- Run (in tmux so it survives disconnect):
 
 ```bash
 tmux new -s bob "./bob ./config.json"
@@ -287,7 +289,7 @@ tmux new -s bob "./bob ./config.json"
 
 > To detach from tmux (leave it running in background): press `Ctrl+B`, then `D`.
 
-**Step 7** -- Verify:
+**Step 8** -- Verify:
 
 ```bash
 tmux attach -t bob                       # re-attach to see output
@@ -319,7 +321,8 @@ journalctl -u qubic-bob -f              # live log output
   "tx-storage-mode": "kvrocks",
   "tx_tick_to_live": 10000,
   "max-thread": 0,
-  "spam-qu-threshold": 100
+  "spam-qu-threshold": 100,
+  "node-seed": "YOUR_SEED_HERE"
 }
 ```
 
@@ -331,6 +334,7 @@ When running with Docker Compose, use container hostnames (`keydb`, `kvrocks`) i
 | `request-cycle-ms` | Polling interval, don't go too low |
 | `tick-storage-mode` / `tx-storage-mode` | Use `kvrocks` for persistence |
 | `max-thread` | 0 = auto |
+| `node-seed` | Seed for the node identity |
 
 ## 6. Firewall
 
