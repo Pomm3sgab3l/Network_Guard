@@ -96,24 +96,24 @@ If you don't want to use the script, pick one of the options below. Copy, paste,
 
 **Option A: Standalone** (bob + redis + kvrocks in one container)
 
-> Docker und Docker Compose müssen installiert sein. Ports `21842` (P2P) und `40420` (API) müssen erreichbar sein.
+> Docker and Docker Compose must be installed. Ports `21842` (P2P) and `40420` (API) must be reachable.
 
 ```bash
 mkdir -p ~/qubic-bob && cd ~/qubic-bob
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/docker-compose.standalone.yml
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/bob.json.standalone
 mv bob.json.standalone bob.json
-nano bob.json                # mindestens trusted-node setzen (siehe Abschnitt 5)
+nano bob.json                # at minimum set trusted-node (see section 5)
 ```
 
-Damit der Container die bearbeitete `bob.json` auch verwendet, muss sie als Volume gemountet werden. Füge in `docker-compose.standalone.yml` unter `volumes:` folgende Zeile ein (oder kommentiere sie ein):
+To make the container use your edited `bob.json`, mount it as a volume. Add (or uncomment) the following line under `volumes:` in `docker-compose.standalone.yml`:
 
 ```yaml
     volumes:
       - ./bob.json:/data/bob/bob.json:ro
 ```
 
-Dann starten:
+Then start:
 
 ```bash
 docker compose -f docker-compose.standalone.yml up -d
@@ -134,7 +134,7 @@ curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/exampl
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/bob.json
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/keydb.conf
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/kvrocks.conf
-nano bob.json                # mindestens trusted-node setzen (siehe Abschnitt 5)
+nano bob.json                # at minimum set trusted-node (see section 5)
 docker compose up -d
 ```
 
@@ -145,8 +145,8 @@ docker compose ps                        # all containers running?
 docker compose logs -f                   # live log output
 ```
 
-> In `bob.json` mindestens `trusted-node` mit einem Peer setzen, z.B. `["1.2.3.4:21841"]`.
-> Bei Compose die Hostnamen `keydb` / `kvrocks` statt `127.0.0.1` verwenden.
+> In `bob.json` set at least `trusted-node` with a peer, e.g. `["1.2.3.4:21841"]`.
+> For Compose use the hostnames `keydb` / `kvrocks` instead of `127.0.0.1`.
 
 Ports: `21842` (P2P), `40420` (REST API)
 
