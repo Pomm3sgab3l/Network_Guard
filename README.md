@@ -277,19 +277,28 @@ cd / && rm -rf /opt/qubic-bob       # remove install directory
 
 ### b. Manual (systemd)
 
+**Remove Bob service:**
+
 ```bash
 sudo systemctl stop qubic-bob
 sudo systemctl disable qubic-bob
 sudo rm /etc/systemd/system/qubic-bob.service
 sudo systemctl daemon-reload
+```
 
-# optional: remove keydb + kvrocks
+**Remove KeyDB + KVRocks** (optional):
+
+```bash
 sudo systemctl stop keydb-server kvrocks
 sudo systemctl disable keydb-server kvrocks
 sudo rm -f /etc/systemd/system/kvrocks.service
 sudo systemctl daemon-reload
+```
 
-rm -rf /opt/qubic-bob               # remove install directory
+**Remove install directory:**
+
+```bash
+rm -rf /opt/qubic-bob
 ```
 
 ### c. Firewall reset
