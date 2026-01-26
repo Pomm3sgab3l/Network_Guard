@@ -6,6 +6,8 @@ Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightwe
 
 ## Table of Contents
 
+**Bob Node**
+
 1. [Requirements](#1-requirements)
 2. [Quick Start](#2-quick-start)
 3. [Docker: Manual Setup](#3-docker-manual-setup)
@@ -18,15 +20,25 @@ Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightwe
    b. [Manual / systemd](#b-manual-systemd)
    c. [Firewall reset](#c-firewall-reset)
 9. [Troubleshooting](#9-troubleshooting)
-10. [Requirements (Lite Node)](#10-requirements)
-11. [Quick Start (Lite Node)](#11-quick-start)
-12. [Docker: Manual Setup (Lite Node)](#12-docker-manual-setup)
-13. [Build from Source (Lite Node)](#13-build-from-source)
-14. [CLI Arguments & Config](#14-cli-arguments--config)
-15. [RPC Endpoints](#15-rpc-endpoints)
-16. [Maintenance (Lite Node)](#16-maintenance)
-17. [Troubleshooting (Lite Node)](#17-troubleshooting)
-18. [Links](#18-links)
+
+**Lite Node**
+
+<ol start="10">
+<li><a href="#10-requirements">Requirements</a></li>
+<li><a href="#11-quick-start">Quick Start</a></li>
+<li><a href="#12-docker-manual-setup">Docker: Manual Setup</a></li>
+<li><a href="#13-build-from-source">Build from Source</a></li>
+<li><a href="#14-cli-arguments--config">CLI Arguments & Config</a></li>
+<li><a href="#15-rpc-endpoints">RPC Endpoints</a></li>
+<li><a href="#16-maintenance">Maintenance</a></li>
+<li><a href="#17-troubleshooting">Troubleshooting</a></li>
+</ol>
+
+**General**
+
+<ol start="18">
+<li><a href="#18-links">Links</a></li>
+</ol>
 
 ---
 
