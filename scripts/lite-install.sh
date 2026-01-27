@@ -211,7 +211,21 @@ install_manual() {
     local avx_flag="OFF"
     [ "$ENABLE_AVX512" = true ] && avx_flag="ON"
 
-    mkdir -p build && cd build
+    mkdir -p build
+
+    # clear cmake cache if compiler changed (avoids stale cache losing build flags)
+    if [ -f build/CMakeCache.txt ]; then
+        local cached_cxx
+        cached_cxx=$(grep -oP 'CMAKE_CXX_COMPILER:FILEPATH=\K.*' build/CMakeCache.txt 2>/dev/null || true)
+        local target_cxx
+        target_cxx=$(command -v "${CLANG_CXX}" 2>/dev/null || echo "${CLANG_CXX}")
+        if [ -n "$cached_cxx" ] && [ "$cached_cxx" != "$target_cxx" ]; then
+            log_warn "compiler changed (${cached_cxx} -> ${target_cxx}), clearing cmake cache..."
+            rm -rf build/*
+        fi
+    fi
+
+    cd build
     cmake .. \
         -DCMAKE_C_COMPILER="${CLANG_C}" \
         -DCMAKE_CXX_COMPILER="${CLANG_CXX}" \
@@ -273,6 +287,7 @@ ensure_build_tools() {
                 exit 1
             fi
 
+            rm -f /usr/share/keyrings/llvm-archive-keyring.gpg
             if ! wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
                 | gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg; then
                 log_error "failed to import LLVM GPG key"
