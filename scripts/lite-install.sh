@@ -254,8 +254,15 @@ ensure_build_tools() {
     log_info "checking build tools..."
 
     # check clang version, install 18 if missing or too old
+    # prefer clang-18 binary first (avoids false warning when system default is older)
     local need_clang=false
-    if command -v clang &> /dev/null; then
+    if command -v clang-18 &> /dev/null; then
+        local clang_ver
+        clang_ver=$(clang-18 --version | head -1 | grep -oP '\d+\.\d+\.\d+' | head -1)
+        log_ok "clang-18: ${clang_ver}"
+        CLANG_C="clang-18"
+        CLANG_CXX="clang++-18"
+    elif command -v clang &> /dev/null; then
         local clang_ver clang_major
         clang_ver=$(clang --version | head -1 | grep -oP '\d+\.\d+\.\d+' | head -1)
         clang_major=$(echo "$clang_ver" | cut -d. -f1)
