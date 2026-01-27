@@ -413,14 +413,14 @@ download_epoch_data() {
     fi
 
     local zip_file="ep${latest_epoch}-full.zip"
-    local zip_url="${storage_url}/${zip_file}"
+    local zip_url="${storage_url}/${latest_epoch}/${zip_file}"
 
     log_info "latest epoch: ${latest_epoch}"
     log_info "downloading ${zip_file} ..."
 
     mkdir -p "${target_dir}"
 
-    if ! wget -q --show-progress -O "${target_dir}/${zip_file}" "${zip_url}"; then
+    if ! wget --tries=3 --timeout=120 --waitretry=5 --show-progress -O "${target_dir}/${zip_file}" "${zip_url}"; then
         log_warn "download failed: ${zip_url}"
         log_warn "download manually from: ${storage_url}/"
         rm -f "${target_dir}/${zip_file}"

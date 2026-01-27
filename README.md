@@ -386,6 +386,18 @@ Pick a mode:
 ./lite-install.sh docker --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers 1.2.3.4,5.6.7.8
 ```
 
+**Manual (systemd) -- testnet:**
+
+```bash
+./lite-install.sh manual --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --testnet
+```
+
+**Manual (systemd) -- mainnet:**
+
+```bash
+./lite-install.sh manual --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers 1.2.3.4,5.6.7.8
+```
+
 **Options:**
 
 | Flag | Default | Description |
@@ -404,10 +416,18 @@ Pick a mode:
 
 > **Mainnet:** The script automatically downloads the latest epoch data from [storage.qubic.li/network](https://storage.qubic.li/network/). Use `--no-epoch` to skip this step and download manually.
 
-**Verify:**
+**Verify (Docker):**
 
 ```bash
+docker compose ps                       # container status
 docker logs -f qubic-lite               # live log output
+```
+
+**Verify (Manual):**
+
+```bash
+systemctl status qubic-lite             # service status
+journalctl -u qubic-lite -f             # live log output
 ```
 
 ## 11. Docker: Manual Setup
