@@ -544,6 +544,20 @@ Stop and remove container:
 docker stop qubic-lite && docker rm qubic-lite
 ```
 
+**Manual / systemd** (section 10, manual mode):
+
+Restart:
+
+```bash
+systemctl restart qubic-lite
+```
+
+Stop:
+
+```bash
+systemctl stop qubic-lite
+```
+
 ## 15. Uninstall
 
 Pick the section that matches how you installed.
@@ -562,6 +576,16 @@ rm -rf /opt/qubic-lite                                         # remove install 
 docker stop qubic-lite && docker rm qubic-lite                # stop + remove container
 docker rmi qubic-lite-node                                     # remove image
 rm -rf ~/qubic-data                                            # remove data directory (if used)
+```
+
+### c. Manual / systemd (section 10, manual mode)
+
+```bash
+systemctl stop qubic-lite                                      # stop service
+systemctl disable qubic-lite                                   # disable autostart
+rm /etc/systemd/system/qubic-lite.service                      # remove service file
+systemctl daemon-reload                                        # reload systemd
+rm -rf /opt/qubic-lite                                         # remove install directory + data
 ```
 
 ## 16. Troubleshooting
