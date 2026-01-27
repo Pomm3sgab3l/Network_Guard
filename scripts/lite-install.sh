@@ -34,6 +34,8 @@ OPERATOR_SEED=""
 OPERATOR_ALIAS=""
 SECURITY_TICK=32
 TICKING_DELAY=1000
+CLANG_C="clang"
+CLANG_CXX="clang++"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -191,7 +193,7 @@ install_manual() {
         libstdc++-12-dev libfmt-dev \
         wget curl tmux
 
-    check_build_tools
+    ensure_build_tools
 
     log_info "cloning qubic-core-lite..."
     mkdir -p "${DATA_DIR}"
@@ -210,8 +212,8 @@ install_manual() {
 
     mkdir -p build && cd build
     cmake .. \
-        -DCMAKE_C_COMPILER=clang \
-        -DCMAKE_CXX_COMPILER=clang++ \
+        -DCMAKE_C_COMPILER="${CLANG_C}" \
+        -DCMAKE_CXX_COMPILER="${CLANG_CXX}" \
         -DBUILD_TESTS=OFF \
         -DBUILD_BINARY=ON \
         -DCMAKE_BUILD_TYPE=Release \
@@ -228,42 +230,56 @@ install_manual() {
 
 # --- component installers ---
 
-check_build_tools() {
+ensure_build_tools() {
     log_info "checking build tools..."
-    local ok=true
 
+    # check clang version, install 18 if missing or too old
+    local need_clang=false
     if command -v clang &> /dev/null; then
         local clang_ver clang_major
         clang_ver=$(clang --version | head -1 | grep -oP '\d+\.\d+\.\d+' | head -1)
         clang_major=$(echo "$clang_ver" | cut -d. -f1)
-        [ "$clang_major" -ge 18 ] 2>/dev/null && log_ok "clang: ${clang_ver}" || { log_warn "clang: ${clang_ver} (need >= 18.1.0)"; ok=false; }
-    else
-        log_warn "clang: not found"; ok=false
-    fi
-
-    if command -v cmake &> /dev/null; then
-        local cmake_ver cmake_major cmake_minor
-        cmake_ver=$(cmake --version | head -1 | grep -oP '\d+\.\d+(\.\d+)?' | head -1)
-        cmake_major=$(echo "$cmake_ver" | cut -d. -f1)
-        cmake_minor=$(echo "$cmake_ver" | cut -d. -f2)
-        if [ "$cmake_major" -gt 3 ] 2>/dev/null || { [ "$cmake_major" -eq 3 ] && [ "$cmake_minor" -ge 14 ]; } 2>/dev/null; then
-            log_ok "cmake: ${cmake_ver}"
+        if [ "$clang_major" -ge 18 ] 2>/dev/null; then
+            log_ok "clang: ${clang_ver}"
         else
-            log_warn "cmake: ${cmake_ver} (need >= 3.14)"; ok=false
+            log_warn "clang: ${clang_ver} (need >= 18) -- installing clang-18..."
+            need_clang=true
         fi
     else
-        log_warn "cmake: not found"; ok=false
+        log_warn "clang: not found -- installing clang-18..."
+        need_clang=true
     fi
 
+    if [ "$need_clang" = true ]; then
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg 2>/dev/null
+        local codename
+        codename=$(lsb_release -sc)
+        echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-18 main" \
+            > /etc/apt/sources.list.d/llvm-18.list
+        apt-get update -qq
+        apt-get install -y -qq clang-18 libc++-18-dev libc++abi-18-dev > /dev/null
+        CLANG_C="clang-18"
+        CLANG_CXX="clang++-18"
+        log_ok "clang-18 installed"
+    fi
+
+    # cmake
+    if command -v cmake &> /dev/null; then
+        local cmake_ver
+        cmake_ver=$(cmake --version | head -1 | grep -oP '\d+\.\d+(\.\d+)?' | head -1)
+        log_ok "cmake: ${cmake_ver}"
+    else
+        log_error "cmake not found"; exit 1
+    fi
+
+    # nasm
     if command -v nasm &> /dev/null; then
         local nasm_ver
         nasm_ver=$(nasm --version | grep -oP '\d+\.\d+\.\d+' | head -1)
         log_ok "nasm: ${nasm_ver}"
     else
-        log_warn "nasm: not found"; ok=false
+        log_error "nasm not found"; exit 1
     fi
-
-    [ "$ok" = false ] && log_warn "some tools missing/outdated - build may still work"
 }
 
 install_docker_engine() {
