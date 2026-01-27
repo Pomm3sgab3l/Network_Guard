@@ -18,6 +18,7 @@
 #   --operator-alias <alias> operator alias name (required)
 #   --security-tick <n>     quorum bypass interval, testnet (default: 32)
 #   --ticking-delay <n>     tick delay ms, testnet (default: 1000)
+#   --no-epoch              skip automatic epoch data download (mainnet)
 
 set -e
 
@@ -34,6 +35,7 @@ OPERATOR_SEED=""
 OPERATOR_ALIAS=""
 SECURITY_TICK=32
 TICKING_DELAY=1000
+SKIP_EPOCH=false
 CLANG_C="clang"
 CLANG_CXX="clang++"
 APT_WAIT="-o DPkg::Lock::Timeout=60"
@@ -63,6 +65,7 @@ print_usage() {
     echo "  --avx512                enable AVX-512"
     echo "  --security-tick <n>     quorum bypass, testnet only (default: 32)"
     echo "  --ticking-delay <n>     tick delay ms, testnet only (default: 1000)"
+    echo "  --no-epoch              skip automatic epoch data download (mainnet)"
 }
 
 check_root() {
@@ -158,6 +161,8 @@ DOCKEREOF
     local node_args
     node_args=$(build_node_args)
 
+    mkdir -p "${DATA_DIR}/data"
+
     cat > "${DATA_DIR}/docker-compose.yml" <<COMPOSEEOF
 services:
   qubic-lite:
@@ -168,12 +173,11 @@ services:
       - "${NODE_PORT}:${NODE_PORT}"
       - "${HTTP_PORT}:${HTTP_PORT}"
     volumes:
-      - qubic-lite-data:/qubic/data
+      - ${DATA_DIR}/data:/qubic/data
     command: ${node_args}
-
-volumes:
-  qubic-lite-data:
 COMPOSEEOF
+
+    download_epoch_data "${DATA_DIR}/data"
 
     log_info "starting container..."
     docker compose up -d
@@ -237,6 +241,7 @@ install_manual() {
     log_ok "build complete"
 
     mkdir -p "${DATA_DIR}/data"
+    download_epoch_data "${DATA_DIR}/data"
     create_lite_service
 
     log_ok "done!"
@@ -373,6 +378,65 @@ EOF
     log_ok "service started"
 }
 
+# --- epoch data download (mainnet) ---
+
+download_epoch_data() {
+    local target_dir="$1"
+
+    if [ "$TESTNET" = true ]; then
+        return
+    fi
+
+    if [ "$SKIP_EPOCH" = true ]; then
+        log_warn "epoch download skipped (--no-epoch)"
+        log_warn "download manually from: https://storage.qubic.li/network/"
+        return
+    fi
+
+    # ensure unzip is available
+    if ! command -v unzip &> /dev/null; then
+        log_info "installing unzip..."
+        apt-get update -qq
+        NEEDRESTART_MODE=a apt-get install -y -qq unzip
+    fi
+
+    local storage_url="https://storage.qubic.li/network"
+
+    log_info "detecting latest epoch from storage.qubic.li..."
+    local latest_epoch
+    latest_epoch=$(curl -sf "${storage_url}/" | grep -o 'ep[0-9]*-full\.zip' | grep -o '[0-9]*' | sort -n | tail -1)
+
+    if [ -z "$latest_epoch" ]; then
+        log_warn "could not detect latest epoch"
+        log_warn "download manually from: ${storage_url}/"
+        return
+    fi
+
+    local zip_file="ep${latest_epoch}-full.zip"
+    local zip_url="${storage_url}/${zip_file}"
+
+    log_info "latest epoch: ${latest_epoch}"
+    log_info "downloading ${zip_file} ..."
+
+    mkdir -p "${target_dir}"
+
+    if ! wget -q --show-progress -O "${target_dir}/${zip_file}" "${zip_url}"; then
+        log_warn "download failed: ${zip_url}"
+        log_warn "download manually from: ${storage_url}/"
+        rm -f "${target_dir}/${zip_file}"
+        return
+    fi
+
+    log_info "extracting epoch data..."
+    if ! unzip -o -q "${target_dir}/${zip_file}" -d "${target_dir}"; then
+        log_warn "extraction failed"
+        return
+    fi
+
+    rm -f "${target_dir}/${zip_file}"
+    log_ok "epoch ${latest_epoch} data ready in ${target_dir}"
+}
+
 # --- status output ---
 
 print_status_docker() {
@@ -393,8 +457,8 @@ print_status_docker() {
     echo "  http://localhost:${HTTP_PORT}/query/v1  # query API"
     echo ""
     if [ "$TESTNET" = false ]; then
-        echo -e "  ${YELLOW}[!]${NC} mainnet: place epoch files in data volume"
-        echo "      spectrum.XXX, universe.XXX, contract0000.XXX ..."
+        echo "  epoch data: ${DATA_DIR}/data"
+        echo "  update epochs: https://storage.qubic.li/network/"
         echo ""
     fi
 }
@@ -419,8 +483,8 @@ print_status_manual() {
     echo "  http://localhost:${HTTP_PORT}/query/v1  # query API"
     echo ""
     if [ "$TESTNET" = false ]; then
-        echo -e "  ${YELLOW}[!]${NC} mainnet: place epoch files in ${DATA_DIR}/data"
-        echo "      spectrum.XXX, universe.XXX, contract0000.XXX ..."
+        echo "  epoch data: ${DATA_DIR}/data"
+        echo "  update epochs: https://storage.qubic.li/network/"
         echo ""
     fi
 }
@@ -447,6 +511,7 @@ parse_args() {
             --avx512)        ENABLE_AVX512=true;  shift   ;;
             --security-tick) SECURITY_TICK="$2";  shift 2 ;;
             --ticking-delay) TICKING_DELAY="$2";  shift 2 ;;
+            --no-epoch)      SKIP_EPOCH=true;     shift   ;;
             --help|-h)       print_usage;         exit 0  ;;
             *) log_error "unknown option: $1"; print_usage; exit 1 ;;
         esac

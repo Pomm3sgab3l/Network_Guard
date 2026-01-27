@@ -29,13 +29,14 @@ Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightwe
 <li><a href="#12-cli-arguments--config">CLI Arguments & Config</a></li>
 <li><a href="#13-rpc-endpoints">RPC Endpoints</a></li>
 <li><a href="#14-maintenance">Maintenance</a></li>
-<li><a href="#15-troubleshooting">Troubleshooting</a></li>
+<li><a href="#15-uninstall">Uninstall</a></li>
+<li><a href="#16-troubleshooting">Troubleshooting</a></li>
 </ol>
 
 **General**
 
-<ol start="16">
-<li><a href="#16-links">Links</a></li>
+<ol start="17">
+<li><a href="#17-links">Links</a></li>
 </ol>
 
 ---
@@ -399,6 +400,9 @@ Pick a mode:
 | `--avx512` | off | Enable AVX-512 support |
 | `--security-tick <n>` | 32 | Quorum bypass interval (testnet) |
 | `--ticking-delay <n>` | 1000 | Tick processing delay in ms |
+| `--no-epoch` | off | Skip automatic epoch data download (mainnet) |
+
+> **Mainnet:** The script automatically downloads the latest epoch data from [storage.qubic.li/network](https://storage.qubic.li/network/). Use `--no-epoch` to skip this step and download manually.
 
 **Verify:**
 
@@ -462,7 +466,7 @@ docker run -d --name qubic-lite --restart unless-stopped \
     qubic-lite-node --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers PEER_IP_1,PEER_IP_2,PEER_IP_3
 ```
 
-> Mainnet needs epoch files (`spectrum.XXX`, `universe.XXX`, `contract0000.XXX` ...) in the data volume.
+> Mainnet needs epoch files in the data volume. Download from [storage.qubic.li/network](https://storage.qubic.li/network/) (the Quick Start script does this automatically).
 
 **Step 4** -- Verify:
 
@@ -520,7 +524,27 @@ Stop and remove container:
 docker stop qubic-lite && docker rm qubic-lite
 ```
 
-## 15. Troubleshooting
+## 15. Uninstall
+
+Pick the section that matches how you installed.
+
+### a. Docker via install script (section 10)
+
+```bash
+docker compose -f /opt/qubic-lite/docker-compose.yml down    # stop container
+docker rmi qubic-lite-node                                     # remove image
+rm -rf /opt/qubic-lite                                         # remove install directory + data
+```
+
+### b. Docker via manual setup (section 11)
+
+```bash
+docker stop qubic-lite && docker rm qubic-lite                # stop + remove container
+docker rmi qubic-lite-node                                     # remove image
+rm -rf ~/qubic-data                                            # remove data directory (if used)
+```
+
+## 16. Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
@@ -532,7 +556,7 @@ docker stop qubic-lite && docker rm qubic-lite
 
 ---
 
-## 16. Links
+## 17. Links
 
 - Bob Node: [krypdkat/qubicbob](https://github.com/krypdkat/qubicbob) | [Docker Hub](https://hub.docker.com/r/j0et0m/qubic-bob) | [REST API docs](https://github.com/krypdkat/qubicbob/tree/master/RESTAPI) | [Config docs](https://github.com/krypdkat/qubicbob/blob/master/CONFIG_FILE.MD)
 - Lite Node: [hackerby888/qubic-core-lite](https://github.com/hackerby888/qubic-core-lite) | [Linux build guide](https://github.com/hackerby888/qubic-core-lite/blob/main/README_CLANG.md)
