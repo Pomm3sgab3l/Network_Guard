@@ -437,9 +437,9 @@ print_status_docker() {
         echo "  FW:      ${FIREWALL_MODE}"
     fi
     echo ""
-    echo "  docker compose ps       # status"
-    echo "  docker compose logs -f  # logs"
-    echo "  docker compose restart  # restart"
+    echo "  docker compose -f ${DATA_DIR}/docker-compose.yml ps       # status"
+    echo "  docker compose -f ${DATA_DIR}/docker-compose.yml logs -f  # logs"
+    echo "  docker compose -f ${DATA_DIR}/docker-compose.yml restart  # restart"
     echo ""
 }
 

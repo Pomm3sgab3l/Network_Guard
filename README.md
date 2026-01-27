@@ -119,8 +119,8 @@ Pick one of the three modes:
 If you used `docker-standalone` or `docker-compose`:
 
 ```bash
-docker compose ps                        # container status
-docker compose logs -f                   # live log output
+docker compose -f /opt/qubic-bob/docker-compose.yml ps       # container status
+docker compose -f /opt/qubic-bob/docker-compose.yml logs -f  # live log output
 ```
 
 If you used `manual`:
@@ -392,25 +392,31 @@ sudo ufw status
 
 Pick the section that matches how you installed.
 
-**Docker** (section 2 or 3):
+**Docker via install script** (section 2):
 
 Update to latest image:
 
 ```bash
-docker compose pull && docker compose up -d
+docker compose -f /opt/qubic-bob/docker-compose.yml pull
+docker compose -f /opt/qubic-bob/docker-compose.yml up -d
 ```
 
 Stop all containers:
 
 ```bash
-docker compose down
+docker compose -f /opt/qubic-bob/docker-compose.yml down
 ```
 
 Full reset (deletes all data):
 
 ```bash
-docker compose down && docker volume rm qubic-bob-redis qubic-bob-kvrocks qubic-bob-data
+docker compose -f /opt/qubic-bob/docker-compose.yml down
+docker volume rm qubic-bob-redis qubic-bob-kvrocks qubic-bob-data
 ```
+
+**Docker via manual setup** (section 3):
+
+Run the same commands from your install directory (`~/qubic-bob`), or replace the `-f` path accordingly.
 
 **Build from source / systemd** (section 4):
 
@@ -435,12 +441,8 @@ Pick the section that matches how you installed.
 ### a. Docker via install script (section 2)
 
 ```bash
-cd /opt/qubic-bob
-docker compose down -v              # stop containers + delete volumes
-```
-
-```bash
-rm -rf /opt/qubic-bob               # remove install directory
+docker compose -f /opt/qubic-bob/docker-compose.yml down -v   # stop containers + delete volumes
+rm -rf /opt/qubic-bob                                          # remove install directory
 ```
 
 ### b. Docker via manual setup (section 3)
@@ -504,7 +506,7 @@ sudo ufw --force reset
 |---------|----------|
 | API returns 404 on all endpoints | Endpoints have no `/v1/` prefix - use `/status`, `/tick/1`, `/balance/{id}` |
 | API not reachable from outside | Check firewall: `sudo ufw status`. If `closed`, API is blocked by design |
-| Container starts but exits immediately | Check logs: `docker compose logs`. Often missing/invalid `bob.json` |
+| Container starts but exits immediately | Check logs: `docker compose -f /opt/qubic-bob/docker-compose.yml logs`. Often missing/invalid `bob.json` |
 | Node not syncing | Verify `trusted-node` peers in `bob.json`. Peers must be reachable on P2P port |
 | KeyDB/KVRocks connection refused | For Docker standalone: uses `127.0.0.1`. For compose: use hostnames `keydb`/`kvrocks` |
 | Bob won't start / crashes immediately | Check that `node-seed` is set in `bob.json` -- it is required |
