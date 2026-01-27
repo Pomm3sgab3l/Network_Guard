@@ -543,31 +543,33 @@ Pick a mode:
 **Docker -- testnet:**
 
 ```bash
-./lite-install.sh docker --testnet
+./lite-install.sh docker --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --testnet
 ```
 
 **Docker -- mainnet:**
 
 ```bash
-./lite-install.sh docker --peers 1.2.3.4,5.6.7.8
+./lite-install.sh docker --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers 1.2.3.4,5.6.7.8
 ```
 
 **Source + systemd -- testnet:**
 
 ```bash
-./lite-install.sh manual --testnet
+./lite-install.sh manual --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --testnet
 ```
 
 **Source + systemd -- mainnet:**
 
 ```bash
-./lite-install.sh manual --peers 1.2.3.4,5.6.7.8 --avx512
+./lite-install.sh manual --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers 1.2.3.4,5.6.7.8 --avx512
 ```
 
 **Options:**
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--operator-seed <seed>` | **required** | Operator identity seed |
+| `--operator-alias <alias>` | **required** | Operator alias name |
 | `--peers <ip1,ip2,...>` | none | Peer IPs to connect to |
 | `--testnet` | mainnet | Enable testnet mode |
 | `--port <port>` | 21841 | P2P port |
@@ -636,7 +638,7 @@ Testnet:
 ```bash
 docker run -d --name qubic-lite --restart unless-stopped \
     -p 21841:21841 -p 41841:41841 \
-    qubic-lite-node --security-tick 32 --ticking-delay 1000
+    qubic-lite-node --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --security-tick 32 --ticking-delay 1000
 ```
 
 Mainnet (mount data dir for epoch files):
@@ -645,7 +647,7 @@ Mainnet (mount data dir for epoch files):
 docker run -d --name qubic-lite --restart unless-stopped \
     -p 21841:21841 -p 41841:41841 \
     -v ~/qubic-data:/qubic/data \
-    qubic-lite-node --peers PEER_IP_1,PEER_IP_2,PEER_IP_3
+    qubic-lite-node --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers PEER_IP_1,PEER_IP_2,PEER_IP_3
 ```
 
 > Mainnet needs epoch files (`spectrum.XXX`, `universe.XXX`, `contract0000.XXX` ...) in the data volume.
@@ -685,13 +687,13 @@ cmake --build . -- -j$(nproc)
 Testnet:
 
 ```bash
-./src/Qubic --security-tick 32 --ticking-delay 1000
+./src/Qubic --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --security-tick 32 --ticking-delay 1000
 ```
 
 Mainnet:
 
 ```bash
-./src/Qubic --peers PEER_IP_1,PEER_IP_2,PEER_IP_3
+./src/Qubic --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers PEER_IP_1,PEER_IP_2,PEER_IP_3
 ```
 
 **Step 4** -- Verify:
@@ -708,6 +710,8 @@ journalctl -u qubic-lite -f             # live log output
 
 **Runtime arguments:**
 
+- `--operator-seed <seed>` - operator identity seed (**required**)
+- `--operator-alias <alias>` - operator alias name (**required**)
 - `--peers <ip1,ip2>` - connect to specific peers
 - `--security-tick <n>` - quorum bypass interval (testnet only)
 - `--ticking-delay <n>` - processing delay in ms (testnet only)

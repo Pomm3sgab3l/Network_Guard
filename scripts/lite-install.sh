@@ -14,6 +14,8 @@
 #   --http-port <port>      HTTP/RPC port (default: 41841)
 #   --data-dir <path>       install dir (default: /opt/qubic-lite)
 #   --avx512                enable AVX-512
+#   --operator-seed <seed>  operator identity seed (required)
+#   --operator-alias <alias> operator alias name (required)
 #   --security-tick <n>     quorum bypass interval, testnet (default: 32)
 #   --ticking-delay <n>     tick delay ms, testnet (default: 1000)
 
@@ -28,6 +30,8 @@ HTTP_PORT=41841
 DATA_DIR="/opt/qubic-lite"
 REPO_URL="https://github.com/hackerby888/qubic-core-lite.git"
 ENABLE_AVX512=false
+OPERATOR_SEED=""
+OPERATOR_ALIAS=""
 SECURITY_TICK=32
 TICKING_DELAY=1000
 
@@ -51,6 +55,8 @@ print_usage() {
     echo "  --port <port>           P2P port (default: 21841)"
     echo "  --http-port <port>      HTTP/RPC port (default: 41841)"
     echo "  --data-dir <path>       install dir (default: /opt/qubic-lite)"
+    echo "  --operator-seed <seed>  operator identity seed (REQUIRED)"
+    echo "  --operator-alias <alias> operator alias name (REQUIRED)"
     echo "  --avx512                enable AVX-512"
     echo "  --security-tick <n>     quorum bypass, testnet only (default: 32)"
     echo "  --ticking-delay <n>     tick delay ms, testnet only (default: 1000)"
@@ -98,7 +104,8 @@ check_system() {
 
 build_node_args() {
     local args=""
-    [ "$TESTNET" = true ] && args="--security-tick ${SECURITY_TICK} --ticking-delay ${TICKING_DELAY}"
+    args="--operator-seed ${OPERATOR_SEED} --operator-alias ${OPERATOR_ALIAS}"
+    [ "$TESTNET" = true ] && args="${args} --security-tick ${SECURITY_TICK} --ticking-delay ${TICKING_DELAY}"
     [ -n "$PEERS" ] && args="${args} --peers ${PEERS}"
     echo "$args"
 }
@@ -367,6 +374,8 @@ parse_args() {
             --port)          NODE_PORT="$2";      shift 2 ;;
             --http-port)     HTTP_PORT="$2";      shift 2 ;;
             --data-dir)      DATA_DIR="$2";       shift 2 ;;
+            --operator-seed) OPERATOR_SEED="$2";  shift 2 ;;
+            --operator-alias) OPERATOR_ALIAS="$2"; shift 2 ;;
             --avx512)        ENABLE_AVX512=true;  shift   ;;
             --security-tick) SECURITY_TICK="$2";  shift 2 ;;
             --ticking-delay) TICKING_DELAY="$2";  shift 2 ;;
@@ -382,6 +391,19 @@ main() {
     echo -e "${CYAN}=== qubic lite node installer ===${NC}"
     parse_args "$@"
     check_root
+
+    if [ -z "$OPERATOR_SEED" ]; then
+        log_error "--operator-seed is required."
+        print_usage
+        exit 1
+    fi
+
+    if [ -z "$OPERATOR_ALIAS" ]; then
+        log_error "--operator-alias is required."
+        print_usage
+        exit 1
+    fi
+
     check_system
 
     case "$MODE" in
