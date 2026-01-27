@@ -74,14 +74,31 @@ Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightwe
 
 ## 2. Quick Start
 
+Download the installer:
+
 ```bash
 wget -O bob-install.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob-install.sh
 chmod +x bob-install.sh
+```
 
-# pick one:
-./bob-install.sh docker-standalone --node-seed YOUR_SEED                              # all-in-one container
-./bob-install.sh docker-compose --node-seed YOUR_SEED --peers 1.2.3.4:21841           # separate containers
-./bob-install.sh manual --node-seed YOUR_SEED --peers 1.2.3.4:21841 --threads 8      # build from source + systemd
+Pick one of the three modes:
+
+**All-in-one container** (recommended):
+
+```bash
+./bob-install.sh docker-standalone --node-seed YOUR_SEED
+```
+
+**Separate containers** (bob, keydb, kvrocks each in own container):
+
+```bash
+./bob-install.sh docker-compose --node-seed YOUR_SEED --peers 1.2.3.4:21841
+```
+
+**Build from source + systemd:**
+
+```bash
+./bob-install.sh manual --node-seed YOUR_SEED --peers 1.2.3.4:21841 --threads 8
 ```
 
 **Options:**
@@ -509,16 +526,36 @@ sudo ufw --force reset
 
 ## 11. Quick Start
 
+Download the installer:
+
 ```bash
 wget -O lite-install.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite-install.sh
 chmod +x lite-install.sh
+```
 
-# docker
+Pick a mode:
+
+**Docker -- testnet:**
+
+```bash
 ./lite-install.sh docker --testnet
-./lite-install.sh docker --peers 1.2.3.4,5.6.7.8
+```
 
-# source + systemd
+**Docker -- mainnet:**
+
+```bash
+./lite-install.sh docker --peers 1.2.3.4,5.6.7.8
+```
+
+**Source + systemd -- testnet:**
+
+```bash
 ./lite-install.sh manual --testnet
+```
+
+**Source + systemd -- mainnet:**
+
+```bash
 ./lite-install.sh manual --peers 1.2.3.4,5.6.7.8 --avx512
 ```
 
