@@ -412,9 +412,10 @@ Pick a mode:
 | `--avx512` | off | Enable AVX-512 support |
 | `--security-tick <n>` | 32 | Quorum bypass interval (testnet) |
 | `--ticking-delay <n>` | 1000 | Tick processing delay in ms |
+| `--epoch <N>` | auto-detect | Build for specific epoch (checks out matching source + downloads data) |
 | `--no-epoch` | off | Skip automatic epoch data download (mainnet) |
 
-> **Mainnet:** The script automatically downloads the latest epoch data from [storage.qubic.li/network](https://storage.qubic.li/network/). Use `--no-epoch` to skip this step and download manually.
+> **Mainnet:** The script auto-detects the current epoch from [storage.qubic.li/network](https://storage.qubic.li/network/), checks out the matching source version, and downloads the epoch data. Use `--epoch <N>` to target a specific epoch, or `--no-epoch` to skip the data download (if you already have the files).
 
 **Verify (Docker):**
 
