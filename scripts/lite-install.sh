@@ -36,6 +36,7 @@ SECURITY_TICK=32
 TICKING_DELAY=1000
 CLANG_C="clang"
 CLANG_CXX="clang++"
+APT_WAIT="-o DPkg::Lock::Timeout=60"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
