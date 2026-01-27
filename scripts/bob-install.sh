@@ -506,6 +506,14 @@ main() {
     esac
 
     setup_firewall
+
+    # self-cleanup: remove installer script after successful run
+    local self
+    self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    if [ -f "$self" ]; then
+        rm -f "$self"
+        log_ok "installer removed (${self})"
+    fi
 }
 
 main "$@"
