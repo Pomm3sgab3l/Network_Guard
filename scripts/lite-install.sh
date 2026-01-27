@@ -158,7 +158,11 @@ install_docker() {
     download_epoch_data "${DATA_DIR}/data" "$epoch"
 
     local avx_flag="OFF"
-    [ "$ENABLE_AVX512" = true ] && avx_flag="ON"
+    local avx_extra_cflags=""
+    if [ "$ENABLE_AVX512" = true ]; then
+        avx_flag="ON"
+        avx_extra_cflags="-mavx512vbmi2"
+    fi
 
     # exclude large dirs from Docker build context
     printf "data/\nqubic-core-lite/.git/\n" > "${DATA_DIR}/.dockerignore"
@@ -179,6 +183,8 @@ RUN cmake .. \\
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \\
     -DBUILD_TESTS=OFF -DBUILD_BINARY=ON \\
     -DCMAKE_BUILD_TYPE=Release -DENABLE_AVX512=${avx_flag} \\
+    -DCMAKE_C_FLAGS="${avx_extra_cflags}" \\
+    -DCMAKE_CXX_FLAGS="${avx_extra_cflags}" \\
     && cmake --build . -- -j\$(nproc)
 
 FROM ubuntu:24.04
@@ -263,7 +269,11 @@ install_manual() {
     download_epoch_data "${DATA_DIR}/data" "$epoch"
 
     local avx_flag="OFF"
-    [ "$ENABLE_AVX512" = true ] && avx_flag="ON"
+    local avx_extra_cflags=""
+    if [ "$ENABLE_AVX512" = true ]; then
+        avx_flag="ON"
+        avx_extra_cflags="-mavx512vbmi2"
+    fi
 
     mkdir -p build
 
@@ -286,7 +296,9 @@ install_manual() {
         -DBUILD_TESTS=OFF \
         -DBUILD_BINARY=ON \
         -DCMAKE_BUILD_TYPE=Release \
-        -DENABLE_AVX512="${avx_flag}"
+        -DENABLE_AVX512="${avx_flag}" \
+        -DCMAKE_C_FLAGS="${avx_extra_cflags}" \
+        -DCMAKE_CXX_FLAGS="${avx_extra_cflags}"
     cmake --build . -- -j"$(nproc)"
     log_ok "build complete"
 
