@@ -191,7 +191,7 @@ services:
       - "21842:21842"
       - "40420:40420"
     volumes:
-      - ./bob.json:/bob/bob.json:ro
+      - ./bob.json:/app/bob.json:ro
       - qubic-bob-redis:/data/redis
       - qubic-bob-kvrocks:/data/kvrocks
       - qubic-bob-data:/data/bob
@@ -237,7 +237,7 @@ services:
       - "21842:21842"
       - "40420:40420"
     volumes:
-      - ./bob.json:/bob/bob.json:ro
+      - ./bob.json:/app/bob.json:ro
       - qubic-bob-data:/data/bob
     depends_on:
       keydb:
