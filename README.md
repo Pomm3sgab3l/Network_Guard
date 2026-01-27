@@ -86,19 +86,19 @@ Pick one of the three modes:
 **All-in-one container** (recommended):
 
 ```bash
-./bob-install.sh docker-standalone --node-seed YOUR_SEED
+./bob-install.sh docker-standalone --node-seed YOUR_SEED --node-alias YOUR_ALIAS
 ```
 
 **Separate containers** (bob, keydb, kvrocks each in own container):
 
 ```bash
-./bob-install.sh docker-compose --node-seed YOUR_SEED --peers 1.2.3.4:21841
+./bob-install.sh docker-compose --node-seed YOUR_SEED --node-alias YOUR_ALIAS --peers 1.2.3.4:21841
 ```
 
 **Build from source + systemd:**
 
 ```bash
-./bob-install.sh manual --node-seed YOUR_SEED --peers 1.2.3.4:21841 --threads 8
+./bob-install.sh manual --node-seed YOUR_SEED --node-alias YOUR_ALIAS --peers 1.2.3.4:21841 --threads 8
 ```
 
 **Options:**
@@ -106,6 +106,7 @@ Pick one of the three modes:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--node-seed <seed>` | **required** | Node identity seed -- Bob will not start without it |
+| `--node-alias <alias>` | **required** | Node alias name -- Bob will not start without it |
 | `--peers <ip:port,...>` | none | Peers to sync from |
 | `--threads <n>` | 0 (auto) | Max threads |
 | `--rpc-port <port>` | 40420 | REST API port |
@@ -144,7 +145,7 @@ curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/exampl
 mv bob.json.standalone bob.json
 ```
 
-**Step 2** -- Edit `bob.json`. You **must** set `node-seed` and `trusted-node` (see section 5 for all options):
+**Step 2** -- Edit `bob.json`. You **must** set `node-seed`, `node-alias`, and `trusted-node` (see section 5 for all options):
 
 ```bash
 nano bob.json
@@ -190,7 +191,7 @@ curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/exampl
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/kvrocks.conf
 ```
 
-**Step 2** -- Edit `bob.json`. You **must** set `node-seed` and `trusted-node` (see section 5 for all options):
+**Step 2** -- Edit `bob.json`. You **must** set `node-seed`, `node-alias`, and `trusted-node` (see section 5 for all options):
 
 ```bash
 nano bob.json
@@ -340,7 +341,8 @@ journalctl -u qubic-bob -f              # live log output
   "tx_tick_to_live": 10000,
   "max-thread": 0,
   "spam-qu-threshold": 100,
-  "node-seed": "YOUR_SEED_HERE"
+  "node-seed": "YOUR_SEED_HERE",
+  "node-alias": "YOUR_ALIAS_HERE"
 }
 ```
 
@@ -353,6 +355,7 @@ When running with Docker Compose, use container hostnames (`keydb`, `kvrocks`) i
 | `tick-storage-mode` / `tx-storage-mode` | Use `kvrocks` for persistence |
 | `max-thread` | 0 = auto |
 | `node-seed` | **Required.** Seed for the node identity -- Bob will not start without it |
+| `node-alias` | **Required.** Alias name for the node -- Bob will not start without it |
 
 ## 6. Firewall
 
