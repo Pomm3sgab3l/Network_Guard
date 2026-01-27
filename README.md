@@ -11,34 +11,31 @@ Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightwe
 1. [Requirements](#1-requirements)
 2. [Quick Start](#2-quick-start)
 3. [Docker: Manual Setup](#3-docker-manual-setup)
-4. [Build from Source](#4-build-from-source)
-5. [Configuration](#5-configuration)
-6. [Firewall](#6-firewall)
-7. [Maintenance](#7-maintenance)
-8. [Uninstall](#8-uninstall)
+4. [Configuration](#4-configuration)
+5. [Firewall](#5-firewall)
+6. [Maintenance](#6-maintenance)
+7. [Uninstall](#7-uninstall)
    a. [Docker via install script](#a-docker-via-install-script-section-2)
    b. [Docker via manual setup](#b-docker-via-manual-setup-section-3)
-   c. [Build from source / systemd](#c-build-from-source--systemd-section-4)
-   d. [Firewall reset](#d-firewall-reset)
-9. [Troubleshooting](#9-troubleshooting)
+   c. [Firewall reset](#c-firewall-reset)
+8. [Troubleshooting](#8-troubleshooting)
 
 **Lite Node**
 
-<ol start="10">
-<li><a href="#10-requirements">Requirements</a></li>
-<li><a href="#11-quick-start">Quick Start</a></li>
-<li><a href="#12-docker-manual-setup">Docker: Manual Setup</a></li>
-<li><a href="#13-build-from-source">Build from Source</a></li>
-<li><a href="#14-cli-arguments--config">CLI Arguments & Config</a></li>
-<li><a href="#15-rpc-endpoints">RPC Endpoints</a></li>
-<li><a href="#16-maintenance">Maintenance</a></li>
-<li><a href="#17-troubleshooting">Troubleshooting</a></li>
+<ol start="9">
+<li><a href="#9-requirements">Requirements</a></li>
+<li><a href="#10-quick-start">Quick Start</a></li>
+<li><a href="#11-docker-manual-setup">Docker: Manual Setup</a></li>
+<li><a href="#12-cli-arguments--config">CLI Arguments & Config</a></li>
+<li><a href="#13-rpc-endpoints">RPC Endpoints</a></li>
+<li><a href="#14-maintenance">Maintenance</a></li>
+<li><a href="#15-troubleshooting">Troubleshooting</a></li>
 </ol>
 
 **General**
 
-<ol start="18">
-<li><a href="#18-links">Links</a></li>
+<ol start="16">
+<li><a href="#16-links">Links</a></li>
 </ol>
 
 ---
@@ -62,7 +59,6 @@ Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightwe
 |--------|----------|
 | Quick Start (section 2) | `wget`, `bash` -- the script installs Docker if missing |
 | Docker: Manual Setup (section 3) | [Docker](https://docs.docker.com/engine/install/) + [Docker Compose](https://docs.docker.com/compose/install/) already installed |
-| Build from Source (section 4) | `build-essential`, `cmake`, `git` + KeyDB + KVRocks |
 
 **Which method should I use?**
 
@@ -70,7 +66,6 @@ Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightwe
 |--------|----------|------------|
 | **Quick Start** (section 2) | Most users. Script handles everything. | Easy |
 | **Docker: Manual Setup** (section 3) | Users who want full control over docker-compose. | Medium |
-| **Build from Source** (section 4) | Advanced users / development. | Advanced |
 
 ## 2. Quick Start
 
@@ -81,7 +76,7 @@ wget -O bob-install.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Gua
 chmod +x bob-install.sh
 ```
 
-Pick one of the three modes:
+Pick one of the two modes:
 
 **All-in-one container** (recommended):
 
@@ -93,12 +88,6 @@ Pick one of the three modes:
 
 ```bash
 ./bob-install.sh docker-compose --node-seed YOUR_SEED --node-alias YOUR_ALIAS --peers 1.2.3.4:21841
-```
-
-**Build from source + systemd:**
-
-```bash
-./bob-install.sh manual --node-seed YOUR_SEED --node-alias YOUR_ALIAS --peers 1.2.3.4:21841 --threads 8
 ```
 
 **Options:**
@@ -116,18 +105,9 @@ Pick one of the three modes:
 
 **Verify:**
 
-If you used `docker-standalone` or `docker-compose`:
-
 ```bash
 docker compose -f /opt/qubic-bob/docker-compose.yml ps       # container status
 docker compose -f /opt/qubic-bob/docker-compose.yml logs -f  # live log output
-```
-
-If you used `manual`:
-
-```bash
-systemctl status qubic-bob
-journalctl -u qubic-bob -f              # live log output
 ```
 
 ## 3. Docker: Manual Setup
@@ -145,7 +125,7 @@ curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/exampl
 mv bob.json.standalone bob.json
 ```
 
-**Step 2** -- Edit `bob.json`. You **must** set `node-seed`, `node-alias`, and `trusted-node` (see section 5 for all options):
+**Step 2** -- Edit `bob.json`. You **must** set `node-seed`, `node-alias`, and `trusted-node` (see section 4 for all options):
 
 ```bash
 nano bob.json
@@ -191,7 +171,7 @@ curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/exampl
 curl -O https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/kvrocks.conf
 ```
 
-**Step 2** -- Edit `bob.json`. You **must** set `node-seed`, `node-alias`, and `trusted-node` (see section 5 for all options):
+**Step 2** -- Edit `bob.json`. You **must** set `node-seed`, `node-alias`, and `trusted-node` (see section 4 for all options):
 
 ```bash
 nano bob.json
@@ -214,111 +194,7 @@ docker compose logs -f                   # live log output
 
 Ports: `21842` (P2P), `40420` (REST API)
 
-## 4. Build from Source
-
-**Step 1** -- Install build dependencies:
-
-```bash
-sudo apt update && sudo apt install -y build-essential cmake git \
-    libjsoncpp-dev uuid-dev libhiredis-dev zlib1g-dev
-```
-
-**Step 2** -- Install and start KeyDB (Redis-compatible database):
-
-```bash
-echo "deb https://download.keydb.dev/open-source-dist $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/keydb.list
-sudo wget -qO - https://download.keydb.dev/open-source-dist/keyring.gpg | sudo gpg --dearmor -o /usr/share/keyrings/keydb-archive-keyring.gpg
-sudo sed -i 's|^deb |deb [signed-by=/usr/share/keyrings/keydb-archive-keyring.gpg] |' /etc/apt/sources.list.d/keydb.list
-sudo apt update && sudo apt install -y keydb
-sudo systemctl enable --now keydb-server
-```
-
-Verify KeyDB is running:
-
-```bash
-keydb-cli ping
-```
-
-> Expected output: `PONG`
-
-**Step 3** -- Install and start KVRocks (persistent key-value store):
-
-```bash
-sudo apt install -y gcc g++ make libsnappy-dev autoconf
-git clone --branch v2.9.0 https://github.com/apache/kvrocks.git /tmp/kvrocks
-cd /tmp/kvrocks
-./x.py build
-sudo cp build/kvrocks /usr/local/bin/
-```
-
-Create systemd service:
-
-```bash
-sudo tee /etc/systemd/system/kvrocks.service > /dev/null <<'EOF'
-[Unit]
-Description=KVRocks
-After=network.target
-
-[Service]
-ExecStart=/usr/local/bin/kvrocks -c /etc/kvrocks/kvrocks.conf
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo mkdir -p /etc/kvrocks /var/lib/kvrocks
-sudo kvrocks --config-dump > /etc/kvrocks/kvrocks.conf 2>/dev/null || true
-sudo systemctl daemon-reload
-sudo systemctl enable --now kvrocks
-```
-
-Verify KVRocks is running:
-
-```bash
-redis-cli -p 6666 ping
-```
-
-> Expected output: `PONG`
-
-**Step 4** -- Clone and build Bob:
-
-```bash
-git clone https://github.com/krypdkat/qubicbob.git && cd qubicbob
-mkdir build && cd build
-cmake ../ && make -j$(nproc)
-```
-
-**Step 5** -- Create and edit config (you **must** set `node-seed` and `trusted-node`):
-
-```bash
-cp ../default_config_bob.json ./config.json
-nano config.json
-```
-
-**Step 6** -- Download blockchain data (spectrum + universe files):
-
-Bob needs the current blockchain data to start. Download it from [storage.qubic.li/network](https://storage.qubic.li/network/) and place the files in Bob's data directory.
-
-**Step 7** -- Run (in tmux so it survives disconnect):
-
-```bash
-tmux new -s bob "./bob ./config.json"
-```
-
-> To detach from tmux (leave it running in background): press `Ctrl+B`, then `D`.
-
-**Step 8** -- Verify:
-
-```bash
-tmux attach -t bob                       # re-attach to see output
-
-# or if installed via script (systemd):
-systemctl status qubic-bob
-journalctl -u qubic-bob -f              # live log output
-```
-
-## 5. Configuration
+## 4. Configuration
 
 `bob.json`:
 
@@ -357,7 +233,7 @@ When running with Docker Compose, use container hostnames (`keydb`, `kvrocks`) i
 | `node-seed` | **Required.** Seed for the node identity -- Bob will not start without it |
 | `node-alias` | **Required.** Alias name for the node -- Bob will not start without it |
 
-## 6. Firewall
+## 5. Firewall
 
 The install script can configure `ufw` to lock down the server. Use `--firewall` with a profile:
 
@@ -388,7 +264,7 @@ sudo ufw enable
 sudo ufw status
 ```
 
-## 7. Maintenance
+## 6. Maintenance
 
 Pick the section that matches how you installed.
 
@@ -418,23 +294,7 @@ docker volume rm qubic-bob-redis qubic-bob-kvrocks qubic-bob-data
 
 Run the same commands from your install directory (`~/qubic-bob`), or replace the `-f` path accordingly.
 
-**Build from source / systemd** (section 4):
-
-Restart:
-
-```bash
-sudo systemctl restart qubic-bob
-```
-
-Update source and rebuild:
-
-```bash
-cd /opt/qubic-bob/qubicbob && git pull
-cd build && cmake ../ && make -j$(nproc)
-sudo systemctl restart qubic-bob
-```
-
-## 8. Uninstall
+## 7. Uninstall
 
 Pick the section that matches how you installed.
 
@@ -467,40 +327,14 @@ Remove install directory:
 rm -rf ~/qubic-bob
 ```
 
-### c. Build from source / systemd (section 4)
-
-**Remove Bob service:**
-
-```bash
-sudo systemctl stop qubic-bob
-sudo systemctl disable qubic-bob
-sudo rm /etc/systemd/system/qubic-bob.service
-sudo systemctl daemon-reload
-```
-
-**Remove KeyDB + KVRocks** (optional):
-
-```bash
-sudo systemctl stop keydb-server kvrocks
-sudo systemctl disable keydb-server kvrocks
-sudo rm -f /etc/systemd/system/kvrocks.service
-sudo systemctl daemon-reload
-```
-
-**Remove install directory:**
-
-```bash
-rm -rf /opt/qubic-bob
-```
-
-### d. Firewall reset
+### c. Firewall reset
 
 ```bash
 sudo ufw disable
 sudo ufw --force reset
 ```
 
-## 9. Troubleshooting
+## 8. Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
@@ -519,7 +353,7 @@ sudo ufw --force reset
 
 > Lightweight Qubic Core - runs on Linux without UEFI. Mainnet (beta) + testnet.
 
-## 10. Requirements
+## 9. Requirements
 
 | Component | Testnet | Mainnet |
 |-----------|---------|---------|
@@ -527,9 +361,8 @@ sudo ufw --force reset
 | CPU | any modern x86_64 | High-freq AVX2/AVX512 (AMD 7950x recommended) |
 | Disk | - | 500 GB SSD |
 | Network | - | 1 Gbit/s |
-| Build tools | Clang >= 18.1.0, CMake >= 3.14, NASM >= 2.16.03 | same |
 
-## 11. Quick Start
+## 10. Quick Start
 
 Download the installer:
 
@@ -552,18 +385,6 @@ Pick a mode:
 ./lite-install.sh docker --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers 1.2.3.4,5.6.7.8
 ```
 
-**Source + systemd -- testnet:**
-
-```bash
-./lite-install.sh manual --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --testnet
-```
-
-**Source + systemd -- mainnet:**
-
-```bash
-./lite-install.sh manual --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers 1.2.3.4,5.6.7.8 --avx512
-```
-
 **Options:**
 
 | Flag | Default | Description |
@@ -581,20 +402,11 @@ Pick a mode:
 
 **Verify:**
 
-If you used `docker`:
-
 ```bash
 docker logs -f qubic-lite               # live log output
 ```
 
-If you used `manual`:
-
-```bash
-systemctl status qubic-lite
-journalctl -u qubic-lite -f             # live log output
-```
-
-## 12. Docker: Manual Setup
+## 11. Docker: Manual Setup
 
 **Step 1** -- Save this Dockerfile (builds from source inside the container):
 
@@ -661,52 +473,7 @@ docker logs -f qubic-lite                # live log output
 
 Ports: `21841` (P2P), `41841` (HTTP/RPC)
 
-## 13. Build from Source
-
-**Step 1** -- Install build dependencies:
-
-```bash
-sudo apt update && sudo apt install -y build-essential clang cmake nasm git g++ \
-    libc++-dev libc++abi-dev libjsoncpp-dev uuid-dev zlib1g-dev \
-    libstdc++-12-dev libfmt-dev
-```
-
-**Step 2** -- Clone and build:
-
-```bash
-git clone https://github.com/hackerby888/qubic-core-lite.git && cd qubic-core-lite
-mkdir -p build && cd build
-cmake .. -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-    -DBUILD_TESTS=OFF -DBUILD_BINARY=ON \
-    -DCMAKE_BUILD_TYPE=Release -DENABLE_AVX512=OFF
-cmake --build . -- -j$(nproc)
-```
-
-**Step 3** -- Run (pick testnet or mainnet):
-
-Testnet:
-
-```bash
-./src/Qubic --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --security-tick 32 --ticking-delay 1000
-```
-
-Mainnet:
-
-```bash
-./src/Qubic --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers PEER_IP_1,PEER_IP_2,PEER_IP_3
-```
-
-**Step 4** -- Verify:
-
-```bash
-# systemd (if installed via script):
-systemctl status qubic-lite
-journalctl -u qubic-lite -f             # live log output
-```
-
-> The install script (`lite-install.sh manual`) sets up systemd so the node starts on boot.
-
-## 14. CLI Arguments & Config
+## 12. CLI Arguments & Config
 
 **Runtime arguments:**
 
@@ -727,7 +494,7 @@ journalctl -u qubic-lite -f             # live log output
 
 For mainnet: get active peers from [app.qubic.li/network/live](https://app.qubic.li/network/live), place epoch files in the working directory.
 
-## 15. RPC Endpoints
+## 13. RPC Endpoints
 
 ```
 http://localhost:41841/live/v1    # live status
@@ -735,11 +502,11 @@ http://localhost:41841/           # stats
 http://localhost:41841/query/v1   # query API
 ```
 
-## 16. Maintenance
+## 14. Maintenance
 
 Pick the section that matches how you installed.
 
-**Docker** (section 11 or 12):
+**Docker** (section 10 or 11):
 
 Rebuild and restart:
 
@@ -753,25 +520,7 @@ Stop and remove container:
 docker stop qubic-lite && docker rm qubic-lite
 ```
 
-**Build from source / systemd** (section 13):
-
-Restart:
-
-```bash
-sudo systemctl restart qubic-lite
-```
-
-Update source and rebuild:
-
-```bash
-cd /opt/qubic-lite/qubic-core-lite && git pull
-cd build && cmake .. -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-    -DBUILD_TESTS=OFF -DBUILD_BINARY=ON -DCMAKE_BUILD_TYPE=Release -DENABLE_AVX512=OFF
-cmake --build . -- -j$(nproc)
-sudo systemctl restart qubic-lite
-```
-
-## 17. Troubleshooting
+## 15. Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
@@ -783,7 +532,7 @@ sudo systemctl restart qubic-lite
 
 ---
 
-## 18. Links
+## 16. Links
 
 - Bob Node: [krypdkat/qubicbob](https://github.com/krypdkat/qubicbob) | [Docker Hub](https://hub.docker.com/r/j0et0m/qubic-bob) | [REST API docs](https://github.com/krypdkat/qubicbob/tree/master/RESTAPI) | [Config docs](https://github.com/krypdkat/qubicbob/blob/master/CONFIG_FILE.MD)
 - Lite Node: [hackerby888/qubic-core-lite](https://github.com/hackerby888/qubic-core-lite) | [Linux build guide](https://github.com/hackerby888/qubic-core-lite/blob/main/README_CLANG.md)
