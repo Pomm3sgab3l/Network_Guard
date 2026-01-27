@@ -19,6 +19,9 @@
 
 set -e
 
+# resolve own path before any cd changes the working directory
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+
 # defaults
 MODE=""
 PEERS=""
@@ -508,11 +511,9 @@ main() {
     setup_firewall
 
     # self-cleanup: remove installer script after successful run
-    local self
-    self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-    if [ -f "$self" ]; then
-        rm -f "$self"
-        log_ok "installer removed (${self})"
+    if [ -f "$SELF" ]; then
+        rm -f "$SELF"
+        log_ok "installer removed (${SELF})"
     fi
 }
 
