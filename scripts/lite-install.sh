@@ -18,6 +18,7 @@
 #   --operator-alias <alias> operator alias name (required)
 #   --security-tick <n>     quorum bypass interval, testnet (default: 32)
 #   --ticking-delay <n>     tick delay ms, testnet (default: 1000)
+#   --epoch <N>             build for specific epoch (auto-detected if omitted)
 #   --no-epoch              skip automatic epoch data download (mainnet)
 
 set -e
@@ -36,6 +37,7 @@ OPERATOR_ALIAS=""
 SECURITY_TICK=32
 TICKING_DELAY=1000
 SKIP_EPOCH=false
+TARGET_EPOCH=""
 DETECTED_EPOCH=""
 CLANG_C="clang"
 CLANG_CXX="clang++"
@@ -66,6 +68,7 @@ print_usage() {
     echo "  --avx512                enable AVX-512"
     echo "  --security-tick <n>     quorum bypass, testnet only (default: 32)"
     echo "  --ticking-delay <n>     tick delay ms, testnet only (default: 1000)"
+    echo "  --epoch <N>             build for specific epoch (auto-detected if omitted)"
     echo "  --no-epoch              skip automatic epoch data download (mainnet)"
 }
 
@@ -125,22 +128,34 @@ install_docker() {
     install_docker_engine
     mkdir -p "${DATA_DIR}" && cd "${DATA_DIR}"
 
-    # clone source locally so we can patch it before building
+    # clone source locally so we can checkout the right epoch
     log_info "cloning qubic-core-lite..."
     if [ -d "${DATA_DIR}/qubic-core-lite" ]; then
-        log_info "source exists, pulling..."
-        cd "${DATA_DIR}/qubic-core-lite" && git pull
+        log_info "source exists, updating..."
+        cd "${DATA_DIR}/qubic-core-lite"
+        git checkout main --quiet 2>/dev/null || true
+        git pull
     else
         git clone "${REPO_URL}" "${DATA_DIR}/qubic-core-lite"
     fi
     cd "${DATA_DIR}"
 
-    # download epoch data first to detect available epoch
-    mkdir -p "${DATA_DIR}/data"
-    download_epoch_data "${DATA_DIR}/data"
+    # determine target epoch: --epoch flag > auto-detect from storage > HEAD
+    local epoch="${TARGET_EPOCH}"
+    if [ -z "$epoch" ] && [ "$TESTNET" = false ] && [ "$SKIP_EPOCH" = false ]; then
+        log_info "no --epoch given, detecting from storage.qubic.li..."
+        local storage_url="https://storage.qubic.li/network"
+        epoch=$(curl -sf "${storage_url}/" | grep -o 'ep[0-9]*-full\.zip' | grep -o '[0-9]*' | sort -n | tail -1 || true)
+        [ -n "$epoch" ] && log_info "detected epoch ${epoch} from storage" || log_warn "auto-detect failed, using HEAD"
+    fi
 
-    # patch source to match downloaded epoch data before building
-    sync_source_epoch "${DATA_DIR}/qubic-core-lite"
+    # checkout matching source version for the target epoch
+    checkout_epoch "${DATA_DIR}/qubic-core-lite" "$epoch"
+    cd "${DATA_DIR}"
+
+    # download epoch data
+    mkdir -p "${DATA_DIR}/data"
+    download_epoch_data "${DATA_DIR}/data" "$epoch"
 
     local avx_flag="OFF"
     [ "$ENABLE_AVX512" = true ] && avx_flag="ON"
@@ -221,20 +236,31 @@ install_manual() {
     mkdir -p "${DATA_DIR}"
 
     if [ -d "${DATA_DIR}/qubic-core-lite" ]; then
-        log_info "source exists, pulling..."
-        cd "${DATA_DIR}/qubic-core-lite" && git pull
+        log_info "source exists, updating..."
+        cd "${DATA_DIR}/qubic-core-lite"
+        git checkout main --quiet 2>/dev/null || true
+        git pull
     else
         git clone "${REPO_URL}" "${DATA_DIR}/qubic-core-lite"
     fi
 
     cd "${DATA_DIR}/qubic-core-lite"
 
-    # download epoch data first so we can detect the available epoch
-    mkdir -p "${DATA_DIR}/data"
-    download_epoch_data "${DATA_DIR}/data"
+    # determine target epoch: --epoch flag > auto-detect from storage > HEAD
+    local epoch="${TARGET_EPOCH}"
+    if [ -z "$epoch" ] && [ "$TESTNET" = false ] && [ "$SKIP_EPOCH" = false ]; then
+        log_info "no --epoch given, detecting from storage.qubic.li..."
+        local storage_url="https://storage.qubic.li/network"
+        epoch=$(curl -sf "${storage_url}/" | grep -o 'ep[0-9]*-full\.zip' | grep -o '[0-9]*' | sort -n | tail -1 || true)
+        [ -n "$epoch" ] && log_info "detected epoch ${epoch} from storage" || log_warn "auto-detect failed, using HEAD"
+    fi
 
-    # patch source to match downloaded epoch data before building
-    sync_source_epoch "${DATA_DIR}/qubic-core-lite"
+    # checkout matching source version for the target epoch
+    checkout_epoch "${DATA_DIR}/qubic-core-lite" "$epoch"
+
+    # download epoch data
+    mkdir -p "${DATA_DIR}/data"
+    download_epoch_data "${DATA_DIR}/data" "$epoch"
 
     local avx_flag="OFF"
     [ "$ENABLE_AVX512" = true ] && avx_flag="ON"
@@ -411,6 +437,7 @@ EOF
 
 download_epoch_data() {
     local target_dir="$1"
+    local epoch="$2"  # optional: skip auto-detect if provided
 
     if [ "$TESTNET" = true ]; then
         return
@@ -431,21 +458,21 @@ download_epoch_data() {
 
     local storage_url="https://storage.qubic.li/network"
 
-    log_info "detecting latest epoch from storage.qubic.li..."
-    local latest_epoch
-    latest_epoch=$(curl -sf "${storage_url}/" | grep -o 'ep[0-9]*-full\.zip' | grep -o '[0-9]*' | sort -n | tail -1)
+    if [ -z "$epoch" ]; then
+        log_info "detecting latest epoch from storage.qubic.li..."
+        epoch=$(curl -sf "${storage_url}/" | grep -o 'ep[0-9]*-full\.zip' | grep -o '[0-9]*' | sort -n | tail -1)
+    fi
 
-    if [ -z "$latest_epoch" ]; then
+    if [ -z "$epoch" ]; then
         log_warn "could not detect latest epoch"
         log_warn "download manually from: ${storage_url}/"
         return
     fi
 
-    local zip_file="ep${latest_epoch}-full.zip"
-    local zip_url="${storage_url}/${latest_epoch}/${zip_file}"
+    local zip_file="ep${epoch}-full.zip"
+    local zip_url="${storage_url}/${epoch}/${zip_file}"
 
-    log_info "latest epoch: ${latest_epoch}"
-    log_info "downloading ${zip_file} ..."
+    log_info "downloading epoch ${epoch} data (${zip_file}) ..."
 
     mkdir -p "${target_dir}"
 
@@ -463,64 +490,69 @@ download_epoch_data() {
     fi
 
     rm -f "${target_dir}/${zip_file}"
-    DETECTED_EPOCH="${latest_epoch}"
-    log_ok "epoch ${latest_epoch} data ready in ${target_dir}"
+    DETECTED_EPOCH="${epoch}"
+    log_ok "epoch ${epoch} data ready in ${target_dir}"
 }
 
-# --- epoch / source sync ---
+# --- epoch / source checkout ---
 
-sync_source_epoch() {
+checkout_epoch() {
     local src_dir="$1"
+    local epoch="$2"
     local settings_file="${src_dir}/src/public_settings.h"
 
-    if [ -z "$DETECTED_EPOCH" ]; then
-        log_warn "no epoch detected, skipping source sync"
+    if [ -z "$epoch" ]; then
+        log_info "no target epoch set, building from latest source (HEAD)"
         return
     fi
 
-    if [ ! -f "$settings_file" ]; then
-        log_warn "public_settings.h not found, skipping source sync"
+    # check if HEAD already matches
+    local head_epoch
+    head_epoch=$(grep -oP '#define\s+EPOCH\s+\K[0-9]+' "$settings_file" 2>/dev/null || true)
+
+    if [ "$head_epoch" = "$epoch" ]; then
+        log_ok "source already at epoch ${epoch} (HEAD)"
         return
     fi
 
-    local current_epoch current_tick
-    current_epoch=$(grep -oP '#define\s+EPOCH\s+\K[0-9]+' "$settings_file" || true)
-    current_tick=$(grep -oP '#define\s+TICK\s+\K[0-9]+' "$settings_file" || true)
+    log_info "source is epoch ${head_epoch}, need epoch ${epoch} -- searching git history..."
 
-    if [ -z "$current_epoch" ]; then
-        log_warn "could not read EPOCH from public_settings.h"
-        return
-    fi
-
-    if [ "$current_epoch" = "$DETECTED_EPOCH" ]; then
-        log_ok "source EPOCH ${current_epoch} matches epoch data (TICK ${current_tick})"
-        return
-    fi
-
-    # find the matching TICK from git history (EPOCH + TICK are always committed together)
-    log_info "source EPOCH ${current_epoch} != epoch data ${DETECTED_EPOCH}, searching git history for matching TICK..."
-    local target_tick=""
+    # find commit where public_settings.h had the target epoch
+    local target_commit=""
     local commits
-    commits=$(cd "$src_dir" && git log --format="%H" -50 -- src/public_settings.h 2>/dev/null || true)
+    commits=$(cd "$src_dir" && git log --all --format="%H" -100 -- src/public_settings.h 2>/dev/null || true)
     for c in $commits; do
         local ep
-        ep=$(cd "$src_dir" && git show "${c}:src/public_settings.h" 2>/dev/null | grep -oP '#define\s+EPOCH\s+\K[0-9]+' || true)
-        if [ "$ep" = "$DETECTED_EPOCH" ]; then
-            target_tick=$(cd "$src_dir" && git show "${c}:src/public_settings.h" | grep -oP '#define\s+TICK\s+\K[0-9]+' || true)
-            log_info "found TICK ${target_tick} for EPOCH ${DETECTED_EPOCH} in commit ${c:0:8}"
+        ep=$(cd "$src_dir" && git show "${c}:src/public_settings.h" 2>/dev/null \
+            | grep -oP '#define\s+EPOCH\s+\K[0-9]+' || true)
+        if [ "$ep" = "$epoch" ]; then
+            target_commit="$c"
             break
         fi
     done
 
-    if [ -z "$target_tick" ]; then
-        log_warn "could not find TICK for EPOCH ${DETECTED_EPOCH} in git history, keeping TICK ${current_tick}"
-        target_tick="$current_tick"
+    if [ -z "$target_commit" ]; then
+        log_error "could not find epoch ${epoch} in git history!"
+        log_error "available epochs in recent history:"
+        for c in $commits; do
+            local ep
+            ep=$(cd "$src_dir" && git show "${c}:src/public_settings.h" 2>/dev/null \
+                | grep -oP '#define\s+EPOCH\s+\K[0-9]+' || true)
+            [ -n "$ep" ] && log_error "  epoch ${ep} (${c:0:8})"
+        done | sort -u
+        exit 1
     fi
 
-    log_info "patching source: EPOCH ${current_epoch} -> ${DETECTED_EPOCH}, TICK ${current_tick} -> ${target_tick}"
-    sed -i "s/#define EPOCH ${current_epoch}/#define EPOCH ${DETECTED_EPOCH}/" "$settings_file"
-    sed -i "s/#define TICK ${current_tick}/#define TICK ${target_tick}/" "$settings_file"
-    log_ok "public_settings.h patched (EPOCH=${DETECTED_EPOCH}, TICK=${target_tick})"
+    log_info "checking out commit ${target_commit:0:8} for epoch ${epoch}..."
+    cd "$src_dir" && git checkout "$target_commit" --quiet
+    rm -rf build
+
+    # verify
+    local verify_epoch
+    verify_epoch=$(grep -oP '#define\s+EPOCH\s+\K[0-9]+' "$settings_file" || true)
+    local verify_tick
+    verify_tick=$(grep -oP '#define\s+TICK\s+\K[0-9]+' "$settings_file" || true)
+    log_ok "checked out epoch ${verify_epoch} (TICK ${verify_tick}, commit ${target_commit:0:8})"
 }
 
 # --- status output ---
@@ -597,6 +629,7 @@ parse_args() {
             --avx512)        ENABLE_AVX512=true;  shift   ;;
             --security-tick) SECURITY_TICK="$2";  shift 2 ;;
             --ticking-delay) TICKING_DELAY="$2";  shift 2 ;;
+            --epoch)         TARGET_EPOCH="$2";   shift 2 ;;
             --no-epoch)      SKIP_EPOCH=true;     shift   ;;
             --help|-h)       print_usage;         exit 0  ;;
             *) log_error "unknown option: $1"; print_usage; exit 1 ;;
