@@ -187,8 +187,8 @@ install_manual() {
     log_info "building lite node from source..."
 
     log_info "installing deps..."
-    apt-get update
-    apt-get install -y build-essential clang cmake nasm git g++ \
+    apt-get update -qq
+    NEEDRESTART_MODE=a apt-get install -y -qq build-essential clang cmake nasm git g++ \
         libc++-dev libc++abi-dev libjsoncpp-dev uuid-dev zlib1g-dev \
         libstdc++-12-dev libfmt-dev \
         wget curl tmux
@@ -257,7 +257,7 @@ ensure_build_tools() {
         echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-18 main" \
             > /etc/apt/sources.list.d/llvm-18.list
         apt-get update -qq
-        apt-get install -y -qq clang-18 libc++-18-dev libc++abi-18-dev > /dev/null
+        NEEDRESTART_MODE=a apt-get install -y -qq clang-18 libc++-18-dev libc++abi-18-dev > /dev/null
         CLANG_C="clang-18"
         CLANG_CXX="clang++-18"
         log_ok "clang-18 installed"
