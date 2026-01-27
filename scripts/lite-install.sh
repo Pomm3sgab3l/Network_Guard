@@ -252,16 +252,52 @@ ensure_build_tools() {
     fi
 
     if [ "$need_clang" = true ]; then
-        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg 2>/dev/null
-        local codename
-        codename=$(lsb_release -sc)
-        echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-18 main" \
-            > /etc/apt/sources.list.d/llvm-18.list
+        # try default repos first (Ubuntu 24.04+ ships clang-18)
         apt-get update -qq
-        NEEDRESTART_MODE=a apt-get install -y -qq clang-18 libc++-18-dev libc++abi-18-dev > /dev/null
+        if NEEDRESTART_MODE=a apt-get install -y -qq clang-18 libc++-18-dev libc++abi-18-dev 2>/dev/null; then
+            log_ok "clang-18 installed (default repos)"
+        else
+            # fallback: add LLVM upstream repo
+            log_info "clang-18 not in default repos, adding LLVM repo..."
+
+            # get codename from os-release (no lsb_release needed)
+            local codename=""
+            if [ -f /etc/os-release ]; then
+                codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+            fi
+            if [ -z "$codename" ]; then
+                codename=$(. /etc/os-release && echo "$UBUNTU_CODENAME")
+            fi
+            if [ -z "$codename" ]; then
+                log_error "cannot determine distro codename for LLVM repo"
+                exit 1
+            fi
+
+            if ! wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+                | gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg; then
+                log_error "failed to import LLVM GPG key"
+                exit 1
+            fi
+
+            echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-18 main" \
+                > /etc/apt/sources.list.d/llvm-18.list
+            apt-get update -qq
+
+            if ! NEEDRESTART_MODE=a apt-get install -y -qq clang-18 libc++-18-dev libc++abi-18-dev; then
+                log_error "failed to install clang-18"
+                exit 1
+            fi
+            log_ok "clang-18 installed (LLVM repo)"
+        fi
+
+        # verify clang-18 is actually usable
+        if ! command -v clang-18 &> /dev/null; then
+            log_error "clang-18 binary not found after install"
+            exit 1
+        fi
+
         CLANG_C="clang-18"
         CLANG_CXX="clang++-18"
-        log_ok "clang-18 installed"
     fi
 
     # cmake
