@@ -158,14 +158,18 @@ install_docker() {
     download_epoch_data "${DATA_DIR}/data" "$epoch"
 
     local avx_flag="OFF"
-    local avx_extra_cflags=""
+    local avx_docker_cmake_lines=""
     if [ "$ENABLE_AVX512" = true ]; then
         avx_flag="ON"
-        avx_extra_cflags="-mavx512vbmi2"
+        # Inject -mavx512vbmi2 via CMAKE_PROJECT_INCLUDE (see manual build comment)
+        avx_docker_cmake_lines='RUN echo "add_compile_options(-mavx512vbmi2)" > /app/avx512vbmi2.cmake'
     fi
 
     # exclude large dirs from Docker build context
     printf "data/\nqubic-core-lite/.git/\n" > "${DATA_DIR}/.dockerignore"
+
+    local avx_include_flag=""
+    [ "$ENABLE_AVX512" = true ] && avx_include_flag="-DCMAKE_PROJECT_INCLUDE=/app/avx512vbmi2.cmake"
 
     log_info "creating Dockerfile..."
     cat > "${DATA_DIR}/Dockerfile" <<DOCKEREOF
@@ -178,13 +182,13 @@ RUN apt-get update && apt-get install -y \\
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY qubic-core-lite/ .
+${avx_docker_cmake_lines}
 WORKDIR /app/build
 RUN cmake .. \\
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \\
     -DBUILD_TESTS=OFF -DBUILD_BINARY=ON \\
     -DCMAKE_BUILD_TYPE=Release -DENABLE_AVX512=${avx_flag} \\
-    -DCMAKE_C_FLAGS="${avx_extra_cflags}" \\
-    -DCMAKE_CXX_FLAGS="${avx_extra_cflags}" \\
+    ${avx_include_flag} \\
     && cmake --build . -- -j\$(nproc)
 
 FROM ubuntu:24.04
@@ -269,10 +273,17 @@ install_manual() {
     download_epoch_data "${DATA_DIR}/data" "$epoch"
 
     local avx_flag="OFF"
-    local avx_extra_cflags=""
+    local avx_cmake_include=""
     if [ "$ENABLE_AVX512" = true ]; then
         avx_flag="ON"
-        avx_extra_cflags="-mavx512vbmi2"
+        # The project CMakeLists.txt clears CMAKE_CXX_FLAGS, so passing them
+        # on the command line has no effect.  Instead we inject the missing
+        # -mavx512vbmi2 flag via CMAKE_PROJECT_INCLUDE which calls
+        # add_compile_options() right after the project() call -- before any
+        # targets are defined and immune to later flag resets.
+        local vbmi2_cmake="${DATA_DIR}/qubic-core-lite/avx512vbmi2.cmake"
+        echo 'add_compile_options(-mavx512vbmi2)' > "$vbmi2_cmake"
+        avx_cmake_include="-DCMAKE_PROJECT_INCLUDE=${vbmi2_cmake}"
     fi
 
     mkdir -p build
@@ -297,8 +308,7 @@ install_manual() {
         -DBUILD_BINARY=ON \
         -DCMAKE_BUILD_TYPE=Release \
         -DENABLE_AVX512="${avx_flag}" \
-        -DCMAKE_C_FLAGS="${avx_extra_cflags}" \
-        -DCMAKE_CXX_FLAGS="${avx_extra_cflags}"
+        ${avx_cmake_include}
     cmake --build . -- -j"$(nproc)"
     log_ok "build complete"
 
@@ -580,8 +590,8 @@ print_status_docker() {
     echo "  HTTP/RPC: http://localhost:${HTTP_PORT}"
     [ -n "$PEERS" ] && echo "  peers:    ${PEERS}"
     echo ""
-    echo "  docker compose ps       # status"
-    echo "  docker compose logs -f  # logs"
+    echo "  docker compose -f ${DATA_DIR}/docker-compose.yml ps       # status"
+    echo "  docker compose -f ${DATA_DIR}/docker-compose.yml logs -f  # logs"
     echo ""
     echo "  http://localhost:${HTTP_PORT}/live/v1   # live status"
     echo "  http://localhost:${HTTP_PORT}/query/v1  # query API"

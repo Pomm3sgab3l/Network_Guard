@@ -420,8 +420,8 @@ Pick a mode:
 **Verify (Docker):**
 
 ```bash
-docker compose ps                       # container status
-docker logs -f qubic-lite               # live log output
+docker compose -f /opt/qubic-lite/docker-compose.yml ps       # container status
+docker compose -f /opt/qubic-lite/docker-compose.yml logs -f  # live log output
 ```
 
 **Verify (Manual):**
@@ -536,13 +536,13 @@ Pick the section that matches how you installed.
 Rebuild and restart:
 
 ```bash
-docker build -t qubic-lite-node . && docker compose up -d
+docker build -t qubic-lite-node /opt/qubic-lite && docker compose -f /opt/qubic-lite/docker-compose.yml up -d
 ```
 
 Stop and remove container:
 
 ```bash
-docker stop qubic-lite && docker rm qubic-lite
+docker compose -f /opt/qubic-lite/docker-compose.yml down
 ```
 
 **Manual / systemd** (section 10, manual mode):
