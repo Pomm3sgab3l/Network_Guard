@@ -36,6 +36,7 @@ OPERATOR_ALIAS=""
 SECURITY_TICK=32
 TICKING_DELAY=1000
 SKIP_EPOCH=false
+DETECTED_EPOCH=""
 CLANG_C="clang"
 CLANG_CXX="clang++"
 APT_WAIT="-o DPkg::Lock::Timeout=60"
@@ -124,8 +125,28 @@ install_docker() {
     install_docker_engine
     mkdir -p "${DATA_DIR}" && cd "${DATA_DIR}"
 
+    # clone source locally so we can patch it before building
+    log_info "cloning qubic-core-lite..."
+    if [ -d "${DATA_DIR}/qubic-core-lite" ]; then
+        log_info "source exists, pulling..."
+        cd "${DATA_DIR}/qubic-core-lite" && git pull
+    else
+        git clone "${REPO_URL}" "${DATA_DIR}/qubic-core-lite"
+    fi
+    cd "${DATA_DIR}"
+
+    # download epoch data first to detect available epoch
+    mkdir -p "${DATA_DIR}/data"
+    download_epoch_data "${DATA_DIR}/data"
+
+    # patch source to match downloaded epoch data before building
+    sync_source_epoch "${DATA_DIR}/qubic-core-lite"
+
     local avx_flag="OFF"
     [ "$ENABLE_AVX512" = true ] && avx_flag="ON"
+
+    # exclude large dirs from Docker build context
+    printf "data/\nqubic-core-lite/.git/\n" > "${DATA_DIR}/.dockerignore"
 
     log_info "creating Dockerfile..."
     cat > "${DATA_DIR}/Dockerfile" <<DOCKEREOF
@@ -137,7 +158,7 @@ RUN apt-get update && apt-get install -y \\
     libstdc++-12-dev libfmt-dev \\
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-RUN git clone ${REPO_URL} .
+COPY qubic-core-lite/ .
 WORKDIR /app/build
 RUN cmake .. \\
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \\
@@ -161,8 +182,6 @@ DOCKEREOF
     local node_args
     node_args=$(build_node_args)
 
-    mkdir -p "${DATA_DIR}/data"
-
     cat > "${DATA_DIR}/docker-compose.yml" <<COMPOSEEOF
 services:
   qubic-lite:
@@ -176,8 +195,6 @@ services:
       - ${DATA_DIR}/data:/qubic/data
     command: ${node_args}
 COMPOSEEOF
-
-    download_epoch_data "${DATA_DIR}/data"
 
     log_info "starting container..."
     docker compose up -d
@@ -212,6 +229,13 @@ install_manual() {
 
     cd "${DATA_DIR}/qubic-core-lite"
 
+    # download epoch data first so we can detect the available epoch
+    mkdir -p "${DATA_DIR}/data"
+    download_epoch_data "${DATA_DIR}/data"
+
+    # patch source to match downloaded epoch data before building
+    sync_source_epoch "${DATA_DIR}/qubic-core-lite"
+
     local avx_flag="OFF"
     [ "$ENABLE_AVX512" = true ] && avx_flag="ON"
 
@@ -240,8 +264,6 @@ install_manual() {
     cmake --build . -- -j"$(nproc)"
     log_ok "build complete"
 
-    mkdir -p "${DATA_DIR}/data"
-    download_epoch_data "${DATA_DIR}/data"
     create_lite_service
 
     log_ok "done!"
@@ -441,7 +463,64 @@ download_epoch_data() {
     fi
 
     rm -f "${target_dir}/${zip_file}"
+    DETECTED_EPOCH="${latest_epoch}"
     log_ok "epoch ${latest_epoch} data ready in ${target_dir}"
+}
+
+# --- epoch / source sync ---
+
+sync_source_epoch() {
+    local src_dir="$1"
+    local settings_file="${src_dir}/src/public_settings.h"
+
+    if [ -z "$DETECTED_EPOCH" ]; then
+        log_warn "no epoch detected, skipping source sync"
+        return
+    fi
+
+    if [ ! -f "$settings_file" ]; then
+        log_warn "public_settings.h not found, skipping source sync"
+        return
+    fi
+
+    local current_epoch current_tick
+    current_epoch=$(grep -oP '#define\s+EPOCH\s+\K[0-9]+' "$settings_file" || true)
+    current_tick=$(grep -oP '#define\s+TICK\s+\K[0-9]+' "$settings_file" || true)
+
+    if [ -z "$current_epoch" ]; then
+        log_warn "could not read EPOCH from public_settings.h"
+        return
+    fi
+
+    if [ "$current_epoch" = "$DETECTED_EPOCH" ]; then
+        log_ok "source EPOCH ${current_epoch} matches epoch data (TICK ${current_tick})"
+        return
+    fi
+
+    # find the matching TICK from git history (EPOCH + TICK are always committed together)
+    log_info "source EPOCH ${current_epoch} != epoch data ${DETECTED_EPOCH}, searching git history for matching TICK..."
+    local target_tick=""
+    local commits
+    commits=$(cd "$src_dir" && git log --format="%H" -50 -- src/public_settings.h 2>/dev/null || true)
+    for c in $commits; do
+        local ep
+        ep=$(cd "$src_dir" && git show "${c}:src/public_settings.h" 2>/dev/null | grep -oP '#define\s+EPOCH\s+\K[0-9]+' || true)
+        if [ "$ep" = "$DETECTED_EPOCH" ]; then
+            target_tick=$(cd "$src_dir" && git show "${c}:src/public_settings.h" | grep -oP '#define\s+TICK\s+\K[0-9]+' || true)
+            log_info "found TICK ${target_tick} for EPOCH ${DETECTED_EPOCH} in commit ${c:0:8}"
+            break
+        fi
+    done
+
+    if [ -z "$target_tick" ]; then
+        log_warn "could not find TICK for EPOCH ${DETECTED_EPOCH} in git history, keeping TICK ${current_tick}"
+        target_tick="$current_tick"
+    fi
+
+    log_info "patching source: EPOCH ${current_epoch} -> ${DETECTED_EPOCH}, TICK ${current_tick} -> ${target_tick}"
+    sed -i "s/#define EPOCH ${current_epoch}/#define EPOCH ${DETECTED_EPOCH}/" "$settings_file"
+    sed -i "s/#define TICK ${current_tick}/#define TICK ${target_tick}/" "$settings_file"
+    log_ok "public_settings.h patched (EPOCH=${DETECTED_EPOCH}, TICK=${target_tick})"
 }
 
 # --- status output ---
