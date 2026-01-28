@@ -156,8 +156,8 @@ fetch_default_peers() {
     bob_peers=$(echo "$resp" | grep -oP '"bobPeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
     lite_peers=$(echo "$resp" | grep -oP '"litePeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
     local all=""
-    for ip in $lite_peers; do all="${all:+$all,}${ip}:21841"; done
-    for ip in $bob_peers; do all="${all:+$all,}${ip}:21842"; done
+    for ip in $lite_peers; do all="${all:+$all,}BM:${ip}:21841:0-0-0-0"; done
+    for ip in $bob_peers; do all="${all:+$all,}bob:${ip}:21842"; done
     if [ -n "$all" ]; then
         PEERS="$all"
         log_ok "peers: ${PEERS}"
