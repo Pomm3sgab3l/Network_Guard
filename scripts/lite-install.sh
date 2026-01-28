@@ -56,6 +56,52 @@ log_ok()    { echo -e "${GREEN}[+]${NC} $1"; }
 log_warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
 log_error() { echo -e "${RED}[-]${NC} $1"; }
 
+# --- fetch peers from API ---
+
+fetch_peers_from_api() {
+    local api_url="https://api.qubic.global/random-peers?service=bobNode&litePeers=8"
+    local manual_url="https://app.qubic.li/network/live"
+
+    log_info "fetching peers from API..."
+
+    local response
+    response=$(curl -sf --connect-timeout 10 --max-time 30 "${api_url}" 2>/dev/null || true)
+
+    if [ -z "$response" ]; then
+        log_warn "API not reachable: ${api_url}"
+        log_warn "please find peers manually at: ${manual_url}"
+        log_warn "look for active nodes and copy their IPs"
+        return 1
+    fi
+
+    # extract litePeers array for lite nodes - format: ["ip1","ip2",...]
+    local peers_json
+    peers_json=$(echo "$response" | grep -oP '"litePeers"\s*:\s*\[[^\]]*\]' | grep -oP '\[[^\]]*\]' || true)
+
+    if [ -z "$peers_json" ] || [ "$peers_json" = "[]" ]; then
+        log_warn "no litePeers found in API response"
+        log_warn "please find peers manually at: ${manual_url}"
+        return 1
+    fi
+
+    # convert JSON array to comma-separated IPs: ["1.2.3.4","5.6.7.8"] -> 1.2.3.4,5.6.7.8
+    local peers_csv
+    peers_csv=$(echo "$peers_json" | tr -d '[]"' | tr ',' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -8 | tr '\n' ',' | sed 's/,$//')
+
+    if [ -z "$peers_csv" ]; then
+        log_warn "could not parse peers from API"
+        log_warn "please find peers manually at: ${manual_url}"
+        return 1
+    fi
+
+    local peer_count
+    peer_count=$(echo "$peers_csv" | tr ',' '\n' | wc -l)
+    log_ok "found ${peer_count} peers from API"
+
+    echo "$peers_csv"
+    return 0
+}
+
 print_usage() {
     echo "Usage:"
     echo "  Interactive:  $0"
@@ -747,9 +793,23 @@ interactive_setup() {
         [ -z "$OPERATOR_ALIAS" ] && echo "  Operator alias is required."
     done
 
-    read -rp "Peers (ip1,ip2, comma-separated, Enter to skip): " PEERS
-    # sanitize: remove leading # or whitespace
-    PEERS=$(echo "$PEERS" | sed 's/^[#[:space:]]*//')
+    # automatically fetch peers from API
+    echo ""
+    PEERS=$(fetch_peers_from_api) || true
+
+    if [ -z "$PEERS" ]; then
+        echo ""
+        log_warn "automatic peer discovery failed"
+        read -rp "Enter peers manually (ip1,ip2, comma-separated): " PEERS
+        # sanitize: remove leading # or whitespace
+        PEERS=$(echo "$PEERS" | sed 's/^[#[:space:]]*//')
+
+        if [ -z "$PEERS" ]; then
+            log_error "at least one peer is required to start the node"
+            log_error "find peers at: https://app.qubic.li/network/live"
+            exit 1
+        fi
+    fi
     echo ""
 }
 
@@ -806,6 +866,16 @@ main() {
         log_error "--operator-alias is required."
         print_usage
         exit 1
+    fi
+
+    # auto-fetch peers if not provided via CLI
+    if [ -z "$PEERS" ]; then
+        PEERS=$(fetch_peers_from_api) || true
+        if [ -z "$PEERS" ]; then
+            log_error "no peers available and API unreachable"
+            log_error "use --peers <ip1,ip2,...> or find peers at: https://app.qubic.li/network/live"
+            exit 1
+        fi
     fi
 
     check_system
