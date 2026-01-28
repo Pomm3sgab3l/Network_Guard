@@ -29,7 +29,6 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 MODE=""
 PEERS=""
 BM_PEERS=""
-BOB_PEERS=""
 MAX_THREADS=0
 RPC_PORT=40420
 SERVER_PORT=21842
@@ -143,87 +142,83 @@ setup_firewall() {
 
 # --- peer discovery ---
 
-# Fallback peers when API is unreachable
-FALLBACK_BM_PEERS="BM:148.113.35.188:21841:0-0-0-0,BM:139.99.124.173:21841:0-0-0-0,BM:15.235.10.185:21841:0-0-0-0,BM:147.135.8.168:21841:0-0-0-0"
-FALLBACK_BOB_PEERS="bob:148.113.35.191:21842,bob:57.131.33.126:21842"
+PEER_LIST_URL="https://app.qubic.li/network/live"
 
 fetch_default_peers() {
     # fetch peers from qubic.global API when none provided
     if [ -n "$PEERS" ]; then
-        # user provided manual peers - parse them into BM and bob categories
+        # user provided manual peers - parse them into BM category
         parse_manual_peers
         return
     fi
-    log_info "fetching default peers from qubic.global..."
+    log_info "fetching peers from qubic.global API..."
     local resp
-    resp=$(curl -sSf --max-time 10 "https://api.qubic.global/random-peers?service=bobNode&litePeers=4" 2>/dev/null) || {
-        log_warn "could not reach qubic.global API, using fallback peers"
-        BM_PEERS="$FALLBACK_BM_PEERS"
-        BOB_PEERS="$FALLBACK_BOB_PEERS"
-        log_ok "trusted (BM): ${BM_PEERS}"
-        log_ok "p2p (bob): ${BOB_PEERS}"
-        return
+    resp=$(curl -sSf --max-time 10 "https://api.qubic.global/random-peers?service=bobNode&litePeers=6" 2>/dev/null) || {
+        log_error "could not reach qubic.global API"
+        log_warn "please provide peers manually with --peers or select from:"
+        log_warn "  ${PEER_LIST_URL}"
+        log_warn ""
+        log_warn "example: --peers 1.2.3.4,5.6.7.8"
+        exit 1
     }
-    local api_bob_peers api_lite_peers
-    api_bob_peers=$(echo "$resp" | grep -oP '"bobPeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
+
+    # Extract litePeers (these become BM/trusted-node peers)
+    local api_lite_peers
     api_lite_peers=$(echo "$resp" | grep -oP '"litePeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
 
-    # Build separate peer lists for config
+    # Build BM peer list (only need trusted-node, no bob peers required)
     BM_PEERS=""
-    BOB_PEERS=""
     for ip in $api_lite_peers; do BM_PEERS="${BM_PEERS:+$BM_PEERS,}BM:${ip}:21841:0-0-0-0"; done
-    for ip in $api_bob_peers; do BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}bob:${ip}:21842"; done
 
-    # Use fallback if API returned empty
-    if [ -z "$BM_PEERS" ] && [ -z "$BOB_PEERS" ]; then
-        log_warn "no peers from API, using fallback"
-        BM_PEERS="$FALLBACK_BM_PEERS"
-        BOB_PEERS="$FALLBACK_BOB_PEERS"
+    if [ -z "$BM_PEERS" ]; then
+        log_error "API returned no peers"
+        log_warn "please provide peers manually with --peers or select from:"
+        log_warn "  ${PEER_LIST_URL}"
+        exit 1
     fi
 
-    log_ok "trusted (BM): ${BM_PEERS:-none}"
-    log_ok "p2p (bob): ${BOB_PEERS:-none}"
+    log_ok "peers (BM): ${BM_PEERS}"
 }
 
 parse_manual_peers() {
-    # Parse user-provided PEERS string into BM and bob categories
+    # Parse user-provided PEERS string into BM peers
     # Supports formats:
-    #   BM:ip:port:pass        -> trusted-node (as-is)
-    #   bob:ip:port            -> p2p-node (as-is)
-    #   ip:port                -> p2p-node (add bob: prefix)
-    #   ip                     -> p2p-node (add bob: prefix and :21842 port)
+    #   BM:ip:port:pass        -> as-is
+    #   BM:ip:port             -> add :0-0-0-0 suffix
+    #   ip:port                -> add BM: prefix and :0-0-0-0 suffix
+    #   ip                     -> add BM: prefix, :21841 port, and :0-0-0-0 suffix
     BM_PEERS=""
-    BOB_PEERS=""
     local IFS=','
     for peer in $PEERS; do
         peer=$(echo "$peer" | xargs)  # trim whitespace
         if [[ "$peer" == BM:* ]]; then
-            BM_PEERS="${BM_PEERS:+$BM_PEERS,}$peer"
-        elif [[ "$peer" == bob:* ]]; then
-            BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}$peer"
+            # Already has BM prefix - check if it has passcode
+            if [[ "$peer" =~ ^BM:[0-9.]+:[0-9]+:[0-9-]+$ ]]; then
+                BM_PEERS="${BM_PEERS:+$BM_PEERS,}$peer"
+            elif [[ "$peer" =~ ^BM:[0-9.]+:[0-9]+$ ]]; then
+                BM_PEERS="${BM_PEERS:+$BM_PEERS,}${peer}:0-0-0-0"
+            else
+                log_warn "skipping invalid BM peer format: $peer"
+            fi
         elif [[ "$peer" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
-            # ip:port format -> add bob: prefix
-            BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}bob:$peer"
+            # ip:port format -> add BM: prefix and passcode
+            BM_PEERS="${BM_PEERS:+$BM_PEERS,}BM:${peer}:0-0-0-0"
         elif [[ "$peer" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            # ip only -> add bob: prefix and default port
-            BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}bob:${peer}:21842"
+            # ip only -> add BM: prefix, default port, and passcode
+            BM_PEERS="${BM_PEERS:+$BM_PEERS,}BM:${peer}:21841:0-0-0-0"
         else
             log_warn "skipping invalid peer format: $peer"
         fi
     done
 
-    # Auto-add fallback peers if missing (bob needs both trusted and p2p peers)
     if [ -z "$BM_PEERS" ]; then
-        log_info "no BM peers specified, adding fallback trusted-nodes..."
-        BM_PEERS="$FALLBACK_BM_PEERS"
-    fi
-    if [ -z "$BOB_PEERS" ]; then
-        log_info "no bob peers specified, adding fallback p2p-nodes..."
-        BOB_PEERS="$FALLBACK_BOB_PEERS"
+        log_error "no valid peers found in: $PEERS"
+        log_warn "please provide valid peer IPs, e.g.: --peers 1.2.3.4,5.6.7.8"
+        log_warn "find peers at: ${PEER_LIST_URL}"
+        exit 1
     fi
 
-    log_ok "trusted (BM): ${BM_PEERS:-none}"
-    log_ok "p2p (bob): ${BOB_PEERS:-none}"
+    log_ok "peers (BM): ${BM_PEERS}"
 }
 
 # --- config generation ---
@@ -231,20 +226,15 @@ parse_manual_peers() {
 generate_config() {
     local keydb_host="$1" kvrocks_host="$2" config_path="$3"
 
-    # Build separate JSON arrays for trusted-node (BM) and p2p-node (bob)
-    local trusted_json="[]"
+    # Build JSON array for p2p-node (BM peers only)
     local p2p_json="[]"
     if [ -n "$BM_PEERS" ]; then
-        trusted_json=$(echo "$BM_PEERS" | tr ',' '\n' | awk '{printf "\"%s\",", $0}' | sed 's/,$//' | awk '{print "["$0"]"}')
-    fi
-    if [ -n "$BOB_PEERS" ]; then
-        p2p_json=$(echo "$BOB_PEERS" | tr ',' '\n' | awk '{printf "\"%s\",", $0}' | sed 's/,$//' | awk '{print "["$0"]"}')
+        p2p_json=$(echo "$BM_PEERS" | tr ',' '\n' | awk '{printf "\"%s\",", $0}' | sed 's/,$//' | awk '{print "["$0"]"}')
     fi
 
     cat > "$config_path" <<CONFIGEOF
 {
   "p2p-node": ${p2p_json},
-  "trusted-node": ${trusted_json},
   "request-cycle-ms": 100,
   "request-logging-cycle-ms": 30,
   "future-offset": 3,
@@ -252,16 +242,13 @@ generate_config() {
   "keydb-url": "tcp://${keydb_host}:6379",
   "run-server": true,
   "server-port": ${SERVER_PORT},
-  "rpc-port": ${RPC_PORT},
   "arbitrator-identity": "${ARBITRATOR_ID}",
   "tick-storage-mode": "kvrocks",
   "kvrocks-url": "tcp://${kvrocks_host}:6666",
   "tx-storage-mode": "kvrocks",
   "tx_tick_to_live": 10000,
   "max-thread": ${MAX_THREADS},
-  "spam-qu-threshold": 100,
-  "node-seed": "${NODE_SEED}",
-  "node-alias": "${NODE_ALIAS}"
+  "spam-qu-threshold": 100
 }
 CONFIGEOF
 
@@ -282,7 +269,7 @@ install_docker_standalone() {
     cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
 services:
   qubic-bob:
-    image: j0et0m/qubic-bob-standalone:latest
+    image: j0et0m/qubic-bob-standalone:rpc
     restart: unless-stopped
     ports:
       - "21842:21842"
