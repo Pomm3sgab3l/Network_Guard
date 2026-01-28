@@ -59,24 +59,28 @@ Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightwe
 
 ## 2. Quick Start
 
-Download the installer:
+Download and run the installer:
 
 ```bash
 wget -O bob-install.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob-install.sh
-chmod +x bob-install.sh
+chmod +x bob-install.sh && ./bob-install.sh
 ```
 
-Pick one of the two modes:
+The script will prompt you for:
+- Installation mode (docker-standalone or docker-compose)
+- Node seed
+- Node alias
+- Peers (optional)
 
-**All-in-one container** (recommended):
+**Alternative: CLI mode**
+
+You can also pass all options directly:
 
 ```bash
+# All-in-one container (recommended)
 ./bob-install.sh docker-standalone --node-seed YOUR_SEED --node-alias YOUR_ALIAS
-```
 
-**Separate containers** (bob, keydb, kvrocks each in own container):
-
-```bash
+# Separate containers
 ./bob-install.sh docker-compose --node-seed YOUR_SEED --node-alias YOUR_ALIAS --peers 1.2.3.4:21841
 ```
 
