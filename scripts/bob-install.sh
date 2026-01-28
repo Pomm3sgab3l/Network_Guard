@@ -358,7 +358,6 @@ services:
   kvrocks:
     image: apache/kvrocks:latest
     restart: unless-stopped
-    command: kvrocks -c /var/lib/kvrocks/kvrocks.conf
     ports:
       - "6666:6666"
     volumes:
