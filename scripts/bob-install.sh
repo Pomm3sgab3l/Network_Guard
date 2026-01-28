@@ -33,7 +33,7 @@ RPC_PORT=40420
 SERVER_PORT=21842
 DATA_DIR="/opt/qubic-bob"
 REPO_URL="https://github.com/krypdkat/qubicbob.git"
-DOCKER_IMAGE="j0et0m/qubic-bob"
+DOCKER_IMAGE="j0et0m/qubicbob"
 DOCKER_IMAGE_STANDALONE="j0et0m/qubic-bob-standalone"
 ARBITRATOR_ID="AFZPUAIYVPNUYGJRQVLUKOPPVLHAZQTGLYAAUUNBXFTVTAMSBKQBLEIEPCVJ"
 FIREWALL_MODE=""
@@ -189,7 +189,7 @@ install_docker_standalone() {
     cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
 services:
   qubic-bob:
-    image: j0et0m/qubic-bob-standalone:prod
+    image: j0et0m/qubic-bob-standalone:latest
     restart: unless-stopped
     ports:
       - "21842:21842"
@@ -235,7 +235,7 @@ install_docker_compose() {
     cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
 services:
   qubic-bob:
-    image: j0et0m/qubic-bob:prod
+    image: j0et0m/qubicbob:latest
     restart: unless-stopped
     ports:
       - "21842:21842"
