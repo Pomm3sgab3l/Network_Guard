@@ -1,21 +1,22 @@
 #!/bin/bash
 # bob-install.sh - Qubic Bob Node installer
 #
-# Usage: ./bob-install.sh <mode> [options]
+# Usage:
+#   Interactive:  ./bob-install.sh
+#   CLI:          ./bob-install.sh <mode> --node-seed <seed> --node-alias <alias> [options]
 #
 # Modes:
-#   docker-standalone   all-in-one container (bob + redis + kvrocks)
+#   docker-standalone   all-in-one container (recommended)
 #   docker-compose      modular setup (separate containers)
-#   manual              build from source + systemd
 #
 # Options:
+#   --node-seed <seed>      node identity seed (required)
+#   --node-alias <alias>    node alias name (required)
 #   --peers <ip:port,...>   peers to sync from
 #   --threads <n>           max threads (0=auto)
 #   --rpc-port <port>       REST API port (default: 40420)
 #   --server-port <port>    P2P port (default: 21842)
 #   --data-dir <path>       install dir (default: /opt/qubic-bob)
-#   --node-seed <seed>      node identity seed (required)
-#   --node-alias <alias>    node alias name (required)
 #   --firewall <mode>       firewall profile: closed | open
 
 set -e
@@ -46,21 +47,22 @@ log_warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
 log_error() { echo -e "${RED}[-]${NC} $1"; }
 
 print_usage() {
-    echo "Usage: $0 <mode> [options]"
+    echo "Usage:"
+    echo "  Interactive:  $0"
+    echo "  CLI:          $0 <mode> --node-seed <seed> --node-alias <alias> [options]"
     echo ""
     echo "Modes:"
     echo "  docker-standalone   all-in-one container (recommended)"
     echo "  docker-compose      modular (separate containers)"
-    echo "  manual              build from source + systemd"
     echo ""
     echo "Options:"
-    echo "  --peers <ip:port,...>   peers to sync from"
+    echo "  --node-seed <seed>     node identity seed (REQUIRED)"
+    echo "  --node-alias <alias>   node alias name (REQUIRED)"
+    echo "  --peers <ip:port,...>  peers to sync from"
     echo "  --threads <n>          max threads (0=auto)"
     echo "  --rpc-port <port>      REST API port (default: 40420)"
     echo "  --server-port <port>   P2P port (default: 21842)"
     echo "  --data-dir <path>      install dir (default: /opt/qubic-bob)"
-    echo "  --node-seed <seed>     node identity seed (REQUIRED)"
-    echo "  --node-alias <alias>   node alias name (REQUIRED)"
     echo "  --firewall <mode>      firewall profile: closed | open"
     echo "                           closed = SSH + P2P only (recommended)"
     echo "                           open   = SSH + P2P + API"
@@ -460,12 +462,44 @@ print_status_manual() {
     echo ""
 }
 
+# --- interactive setup ---
+
+interactive_setup() {
+    echo ""
+    echo -e "${CYAN}Select installation mode:${NC}"
+    echo "  1) docker-standalone   (all-in-one container, recommended)"
+    echo "  2) docker-compose      (separate containers)"
+    echo ""
+    while true; do
+        read -rp "Enter choice [1/2]: " choice
+        case "$choice" in
+            1) MODE="docker-standalone"; break ;;
+            2) MODE="docker-compose";    break ;;
+            *) echo "  Please enter 1 or 2." ;;
+        esac
+    done
+
+    echo ""
+    while [ -z "$NODE_SEED" ]; do
+        read -rp "Node seed: " NODE_SEED
+        [ -z "$NODE_SEED" ] && echo "  Node seed is required."
+    done
+
+    while [ -z "$NODE_ALIAS" ]; do
+        read -rp "Node alias: " NODE_ALIAS
+        [ -z "$NODE_ALIAS" ] && echo "  Node alias is required."
+    done
+
+    read -rp "Peers (ip:port, comma-separated, Enter to skip): " PEERS
+    echo ""
+}
+
 # --- arg parsing ---
 
 parse_args() {
     if [ $# -eq 0 ]; then
-        print_usage
-        exit 1
+        interactive_setup
+        return
     fi
 
     MODE="$1"; shift
