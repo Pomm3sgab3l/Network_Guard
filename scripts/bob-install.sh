@@ -166,39 +166,60 @@ fetch_default_peers() {
     local api_lite_peers
     api_lite_peers=$(echo "$resp" | grep -oP '"litePeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
 
-    # Build BM peer list (only need trusted-node, no bob peers required)
+    # Extract bobPeers (these provide actual tick data)
+    local api_bob_peers
+    api_bob_peers=$(echo "$resp" | grep -oP '"bobPeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
+
+    # Build peer lists
     BM_PEERS=""
     for ip in $api_lite_peers; do BM_PEERS="${BM_PEERS:+$BM_PEERS,}BM:${ip}:21841:0-0-0-0"; done
 
-    if [ -z "$BM_PEERS" ]; then
+    BOB_PEERS=""
+    for ip in $api_bob_peers; do BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}bob:${ip}:21842"; done
+
+    if [ -z "$BM_PEERS" ] && [ -z "$BOB_PEERS" ]; then
         log_error "API returned no peers"
         log_warn "please provide peers manually with --peers or select from:"
         log_warn "  ${PEER_LIST_URL}"
         exit 1
     fi
 
-    log_ok "peers (BM): ${BM_PEERS}"
+    [ -n "$BM_PEERS" ] && log_ok "peers (BM): ${BM_PEERS}"
+    [ -n "$BOB_PEERS" ] && log_ok "peers (bob): ${BOB_PEERS}"
 }
 
 parse_manual_peers() {
-    # Parse user-provided PEERS string into BM peers
+    # Parse user-provided PEERS string into BM and bob peers
     # Supports formats:
-    #   BM:ip:port:pass        -> as-is
-    #   BM:ip:port             -> add :0-0-0-0 suffix
-    #   ip:port                -> add BM: prefix and :0-0-0-0 suffix
-    #   ip                     -> add BM: prefix, :21841 port, and :0-0-0-0 suffix
+    #   BM:ip:port:pass        -> BM peer as-is
+    #   BM:ip:port             -> BM peer, add :0-0-0-0 suffix
+    #   bob:ip:port            -> bob peer as-is
+    #   bob:ip                 -> bob peer, add :21842 port
+    #   ip:port                -> BM peer, add BM: prefix and :0-0-0-0 suffix
+    #   ip                     -> BM peer, add BM: prefix, :21841 port, and :0-0-0-0 suffix
     BM_PEERS=""
+    BOB_PEERS=""
     local IFS=','
     for peer in $PEERS; do
         peer=$(echo "$peer" | xargs)  # trim whitespace
         if [[ "$peer" == BM:* ]]; then
-            # Already has BM prefix - check if it has passcode
+            # BM peer
             if [[ "$peer" =~ ^BM:[0-9.]+:[0-9]+:[0-9-]+$ ]]; then
                 BM_PEERS="${BM_PEERS:+$BM_PEERS,}$peer"
             elif [[ "$peer" =~ ^BM:[0-9.]+:[0-9]+$ ]]; then
                 BM_PEERS="${BM_PEERS:+$BM_PEERS,}${peer}:0-0-0-0"
             else
                 log_warn "skipping invalid BM peer format: $peer"
+            fi
+        elif [[ "$peer" == bob:* ]]; then
+            # bob peer
+            if [[ "$peer" =~ ^bob:[0-9.]+:[0-9]+$ ]]; then
+                BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}$peer"
+            elif [[ "$peer" =~ ^bob:[0-9.]+$ ]]; then
+                local ip="${peer#bob:}"
+                BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}bob:${ip}:21842"
+            else
+                log_warn "skipping invalid bob peer format: $peer"
             fi
         elif [[ "$peer" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
             # ip:port format -> add BM: prefix and passcode
@@ -211,14 +232,15 @@ parse_manual_peers() {
         fi
     done
 
-    if [ -z "$BM_PEERS" ]; then
+    if [ -z "$BM_PEERS" ] && [ -z "$BOB_PEERS" ]; then
         log_error "no valid peers found in: $PEERS"
         log_warn "please provide valid peer IPs, e.g.: --peers 1.2.3.4,5.6.7.8"
         log_warn "find peers at: ${PEER_LIST_URL}"
         exit 1
     fi
 
-    log_ok "peers (BM): ${BM_PEERS}"
+    [ -n "$BM_PEERS" ] && log_ok "peers (BM): ${BM_PEERS}"
+    [ -n "$BOB_PEERS" ] && log_ok "peers (bob): ${BOB_PEERS}"
 }
 
 # --- config generation ---
@@ -226,10 +248,15 @@ parse_manual_peers() {
 generate_config() {
     local keydb_host="$1" kvrocks_host="$2" config_path="$3"
 
-    # Build JSON array for trusted-node (BM peers)
+    # Combine BM and bob peers for trusted-node
+    local all_peers=""
+    [ -n "$BM_PEERS" ] && all_peers="$BM_PEERS"
+    [ -n "$BOB_PEERS" ] && all_peers="${all_peers:+$all_peers,}$BOB_PEERS"
+
+    # Build JSON array for trusted-node
     local trusted_json="[]"
-    if [ -n "$BM_PEERS" ]; then
-        trusted_json=$(echo "$BM_PEERS" | tr ',' '\n' | awk '{printf "\"%s\",", $0}' | sed 's/,$//' | awk '{print "["$0"]"}')
+    if [ -n "$all_peers" ]; then
+        trusted_json=$(echo "$all_peers" | tr ',' '\n' | awk '{printf "\"%s\",", $0}' | sed 's/,$//' | awk '{print "["$0"]"}')
     fi
 
     cat > "$config_path" <<CONFIGEOF
