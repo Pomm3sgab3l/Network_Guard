@@ -237,6 +237,8 @@ services:
   qubic-bob:
     image: j0et0m/qubicbob:latest
     restart: unless-stopped
+    entrypoint: ["/app/bob", "/app/bob.json"]
+    working_dir: /data/bob
     ports:
       - "21842:21842"
       - "40420:40420"
