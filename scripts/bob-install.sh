@@ -37,6 +37,7 @@ REPO_URL="https://github.com/krypdkat/qubicbob.git"
 DOCKER_IMAGE="j0et0m/qubicbob"
 DOCKER_IMAGE_STANDALONE="j0et0m/qubic-bob-standalone"
 ARBITRATOR_ID="AFZPUAIYVPNUYGJRQVLUKOPPVLHAZQTGLYAAUUNBXFTVTAMSBKQBLEIEPCVJ"
+BOOTSTRAP_URL="https://storage.qubic.li/network"
 FIREWALL_MODE=""
 NODE_SEED=""
 NODE_ALIAS=""
@@ -243,6 +244,58 @@ parse_manual_peers() {
     [ -n "$BOB_PEERS" ] && log_ok "peers (bob): ${BOB_PEERS}"
 }
 
+# --- bootstrap download ---
+
+download_bootstrap() {
+    local data_dir="$1"
+
+    log_info "checking for bootstrap files..."
+
+    # Get current epoch from API
+    local epoch
+    epoch=$(curl -sSf --max-time 10 "https://rpc.qubic.org/v1/status" 2>/dev/null | grep -oP '"epoch":\s*\K[0-9]+' | head -1) || {
+        log_warn "could not get current epoch from API, skipping bootstrap"
+        return 0
+    }
+
+    if [ -z "$epoch" ]; then
+        log_warn "could not parse epoch, skipping bootstrap"
+        return 0
+    fi
+
+    log_ok "current epoch: ${epoch}"
+
+    # Check if bootstrap files already exist
+    if [ -f "${data_dir}/spectrum.${epoch}" ] && [ -f "${data_dir}/universe.${epoch}" ]; then
+        log_ok "bootstrap files already exist"
+        return 0
+    fi
+
+    # Download bootstrap ZIP
+    local zip_url="${BOOTSTRAP_URL}/${epoch}/ep${epoch}-bob.zip"
+    local zip_file="/tmp/ep${epoch}-bob.zip"
+
+    log_info "downloading bootstrap files (~1.8GB)..."
+    log_info "  ${zip_url}"
+
+    if ! curl -sSfL --max-time 600 -o "$zip_file" "$zip_url" 2>/dev/null; then
+        log_warn "bootstrap download failed, node will sync from scratch (slower)"
+        return 0
+    fi
+
+    # Extract to data directory
+    log_info "extracting bootstrap files..."
+    mkdir -p "$data_dir"
+    if ! unzip -o -q "$zip_file" -d "$data_dir" 2>/dev/null; then
+        log_warn "bootstrap extraction failed"
+        rm -f "$zip_file"
+        return 0
+    fi
+
+    rm -f "$zip_file"
+    log_ok "bootstrap files ready (epoch ${epoch})"
+}
+
 # --- config generation ---
 
 generate_config() {
@@ -292,10 +345,13 @@ install_docker_standalone() {
     log_info "setting up bob (docker standalone)..."
 
     install_docker_engine
-    mkdir -p "${DATA_DIR}" && cd "${DATA_DIR}"
+    mkdir -p "${DATA_DIR}/data" && cd "${DATA_DIR}"
 
     fetch_default_peers
     generate_config "127.0.0.1" "127.0.0.1" "${DATA_DIR}/bob.json"
+
+    # Download bootstrap files before starting container
+    download_bootstrap "${DATA_DIR}/data"
 
     cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
 services:
@@ -309,12 +365,11 @@ services:
       - ./bob.json:/app/config/bob.json:ro
       - qubic-bob-redis:/data/redis
       - qubic-bob-kvrocks:/data/kvrocks
-      - qubic-bob-data:/data/bob
+      - ./data:/data/bob
 
 volumes:
   qubic-bob-redis:
   qubic-bob-kvrocks:
-  qubic-bob-data:
 COMPOSEEOF
 
     sed -i "s/\"21842:21842\"/\"${SERVER_PORT}:21842\"/" "${DATA_DIR}/docker-compose.yml"
@@ -333,7 +388,7 @@ install_docker_compose() {
     log_info "setting up bob (docker compose)..."
 
     install_docker_engine
-    mkdir -p "${DATA_DIR}" && cd "${DATA_DIR}"
+    mkdir -p "${DATA_DIR}/data" && cd "${DATA_DIR}"
 
     fetch_default_peers
     generate_config "keydb" "kvrocks" "${DATA_DIR}/bob.json"
@@ -343,6 +398,9 @@ install_docker_compose() {
         "https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/keydb.conf"
     curl -sSfL -o "${DATA_DIR}/kvrocks.conf" \
         "https://raw.githubusercontent.com/krypdkat/qubicbob/master/docker/examples/kvrocks.conf"
+
+    # Download bootstrap files before starting container
+    download_bootstrap "${DATA_DIR}/data"
 
     cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
 services:
@@ -356,7 +414,7 @@ services:
       - "40420:40420"
     volumes:
       - ./bob.json:/app/bob.json:ro
-      - qubic-bob-data:/data/bob
+      - ./data:/data/bob
     depends_on:
       keydb:
         condition: service_healthy
@@ -402,7 +460,6 @@ networks:
   bobnet:
 
 volumes:
-  qubic-bob-data:
   qubic-bob-keydb:
   qubic-bob-kvrocks:
 COMPOSEEOF
@@ -448,6 +505,10 @@ install_manual() {
     log_ok "build complete"
 
     generate_config "127.0.0.1" "127.0.0.1" "${DATA_DIR}/qubicbob/build/config.json"
+
+    # Download bootstrap files
+    download_bootstrap "${DATA_DIR}/qubicbob/build"
+
     create_bob_service
 
     log_ok "done!"
@@ -459,12 +520,18 @@ install_manual() {
 install_docker_engine() {
     if command -v docker &> /dev/null; then
         log_ok "docker: $(docker --version)"
-        return
+    else
+        log_info "installing docker..."
+        curl -fsSL https://get.docker.com | sh
+        systemctl enable docker && systemctl start docker
+        log_ok "docker installed"
     fi
-    log_info "installing docker..."
-    curl -fsSL https://get.docker.com | sh
-    systemctl enable docker && systemctl start docker
-    log_ok "docker installed"
+
+    # Ensure unzip is available for bootstrap extraction
+    if ! command -v unzip &> /dev/null; then
+        log_info "installing unzip..."
+        apt-get update -qq && apt-get install -y -qq unzip > /dev/null
+    fi
 }
 
 install_keydb() {
