@@ -187,17 +187,28 @@ fetch_default_peers() {
 
 parse_manual_peers() {
     # Parse user-provided PEERS string into BM and bob categories
+    # Supports formats:
+    #   BM:ip:port:pass        -> trusted-node (as-is)
+    #   bob:ip:port            -> p2p-node (as-is)
+    #   ip:port                -> p2p-node (add bob: prefix)
+    #   ip                     -> p2p-node (add bob: prefix and :21842 port)
     BM_PEERS=""
     BOB_PEERS=""
     local IFS=','
     for peer in $PEERS; do
+        peer=$(echo "$peer" | xargs)  # trim whitespace
         if [[ "$peer" == BM:* ]]; then
             BM_PEERS="${BM_PEERS:+$BM_PEERS,}$peer"
         elif [[ "$peer" == bob:* ]]; then
             BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}$peer"
+        elif [[ "$peer" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
+            # ip:port format -> add bob: prefix
+            BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}bob:$peer"
+        elif [[ "$peer" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # ip only -> add bob: prefix and default port
+            BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}bob:${peer}:21842"
         else
-            # Legacy format: treat as bob peer
-            BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}$peer"
+            log_warn "skipping invalid peer format: $peer"
         fi
     done
     log_ok "trusted (BM): ${BM_PEERS:-none}"
