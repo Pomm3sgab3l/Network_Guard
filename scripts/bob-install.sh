@@ -320,13 +320,15 @@ install_docker_compose() {
     cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
 services:
   qubic-bob:
-    image: j0et0m/qubic-bob:prod
+    image: j0et0m/qubicbob:latest
     restart: unless-stopped
+    entrypoint: ["/app/bob", "/app/bob.json"]
+    working_dir: /data/bob
     ports:
       - "21842:21842"
       - "40420:40420"
     volumes:
-      - ./bob.json:/app/config/bob.json:ro
+      - ./bob.json:/app/bob.json:ro
       - qubic-bob-data:/data/bob
     depends_on:
       keydb:
