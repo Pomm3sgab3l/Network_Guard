@@ -143,6 +143,10 @@ setup_firewall() {
 
 # --- peer discovery ---
 
+# Fallback peers when API is unreachable
+FALLBACK_BM_PEERS="BM:148.113.35.188:21841:0-0-0-0,BM:139.99.124.173:21841:0-0-0-0,BM:15.235.10.185:21841:0-0-0-0,BM:147.135.8.168:21841:0-0-0-0"
+FALLBACK_BOB_PEERS="bob:148.113.35.191:21842,bob:57.131.33.126:21842"
+
 fetch_default_peers() {
     # fetch peers from qubic.global API when none provided
     if [ -n "$PEERS" ]; then
@@ -153,7 +157,11 @@ fetch_default_peers() {
     log_info "fetching default peers from qubic.global..."
     local resp
     resp=$(curl -sSf --max-time 10 "https://api.qubic.global/random-peers?service=bobNode&litePeers=4" 2>/dev/null) || {
-        log_warn "could not reach qubic.global API"
+        log_warn "could not reach qubic.global API, using fallback peers"
+        BM_PEERS="$FALLBACK_BM_PEERS"
+        BOB_PEERS="$FALLBACK_BOB_PEERS"
+        log_ok "trusted (BM): ${BM_PEERS}"
+        log_ok "p2p (bob): ${BOB_PEERS}"
         return
     }
     local api_bob_peers api_lite_peers
@@ -166,12 +174,15 @@ fetch_default_peers() {
     for ip in $api_lite_peers; do BM_PEERS="${BM_PEERS:+$BM_PEERS,}BM:${ip}:21841:0-0-0-0"; done
     for ip in $api_bob_peers; do BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}bob:${ip}:21842"; done
 
-    if [ -n "$BM_PEERS" ] || [ -n "$BOB_PEERS" ]; then
-        log_ok "trusted (BM): ${BM_PEERS:-none}"
-        log_ok "p2p (bob): ${BOB_PEERS:-none}"
-    else
-        log_warn "no peers returned from API"
+    # Use fallback if API returned empty
+    if [ -z "$BM_PEERS" ] && [ -z "$BOB_PEERS" ]; then
+        log_warn "no peers from API, using fallback"
+        BM_PEERS="$FALLBACK_BM_PEERS"
+        BOB_PEERS="$FALLBACK_BOB_PEERS"
     fi
+
+    log_ok "trusted (BM): ${BM_PEERS:-none}"
+    log_ok "p2p (bob): ${BOB_PEERS:-none}"
 }
 
 parse_manual_peers() {
