@@ -207,7 +207,7 @@ RUN apt-get update && apt-get install -y \\
 WORKDIR /qubic
 COPY --from=builder /app/build/src/Qubic .
 EXPOSE ${NODE_PORT} ${HTTP_PORT}
-ENTRYPOINT ["./Qubic"]
+ENTRYPOINT ["/qubic/Qubic"]
 DOCKEREOF
 
     log_info "building docker image (this takes a while)..."
@@ -222,6 +222,7 @@ services:
     image: qubic-lite-node
     container_name: qubic-lite
     restart: unless-stopped
+    working_dir: /qubic/data
     ports:
       - "${NODE_PORT}:${NODE_PORT}"
       - "${HTTP_PORT}:${HTTP_PORT}"

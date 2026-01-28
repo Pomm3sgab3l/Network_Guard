@@ -28,6 +28,8 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # defaults
 MODE=""
 PEERS=""
+BM_PEERS=""
+BOB_PEERS=""
 MAX_THREADS=0
 RPC_PORT=40420
 SERVER_PORT=21842
@@ -144,6 +146,8 @@ setup_firewall() {
 fetch_default_peers() {
     # fetch peers from qubic.global API when none provided
     if [ -n "$PEERS" ]; then
+        # user provided manual peers - parse them into BM and bob categories
+        parse_manual_peers
         return
     fi
     log_info "fetching default peers from qubic.global..."
@@ -152,18 +156,41 @@ fetch_default_peers() {
         log_warn "could not reach qubic.global API"
         return
     }
-    local bob_peers lite_peers
-    bob_peers=$(echo "$resp" | grep -oP '"bobPeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
-    lite_peers=$(echo "$resp" | grep -oP '"litePeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
-    local all=""
-    for ip in $lite_peers; do all="${all:+$all,}BM:${ip}:21841:0-0-0-0"; done
-    for ip in $bob_peers; do all="${all:+$all,}bob:${ip}:21842"; done
-    if [ -n "$all" ]; then
-        PEERS="$all"
-        log_ok "peers: ${PEERS}"
+    local api_bob_peers api_lite_peers
+    api_bob_peers=$(echo "$resp" | grep -oP '"bobPeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
+    api_lite_peers=$(echo "$resp" | grep -oP '"litePeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
+
+    # Build separate peer lists for config
+    BM_PEERS=""
+    BOB_PEERS=""
+    for ip in $api_lite_peers; do BM_PEERS="${BM_PEERS:+$BM_PEERS,}BM:${ip}:21841:0-0-0-0"; done
+    for ip in $api_bob_peers; do BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}bob:${ip}:21842"; done
+
+    if [ -n "$BM_PEERS" ] || [ -n "$BOB_PEERS" ]; then
+        log_ok "trusted (BM): ${BM_PEERS:-none}"
+        log_ok "p2p (bob): ${BOB_PEERS:-none}"
     else
         log_warn "no peers returned from API"
     fi
+}
+
+parse_manual_peers() {
+    # Parse user-provided PEERS string into BM and bob categories
+    BM_PEERS=""
+    BOB_PEERS=""
+    local IFS=','
+    for peer in $PEERS; do
+        if [[ "$peer" == BM:* ]]; then
+            BM_PEERS="${BM_PEERS:+$BM_PEERS,}$peer"
+        elif [[ "$peer" == bob:* ]]; then
+            BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}$peer"
+        else
+            # Legacy format: treat as bob peer
+            BOB_PEERS="${BOB_PEERS:+$BOB_PEERS,}$peer"
+        fi
+    done
+    log_ok "trusted (BM): ${BM_PEERS:-none}"
+    log_ok "p2p (bob): ${BOB_PEERS:-none}"
 }
 
 # --- config generation ---
@@ -171,15 +198,20 @@ fetch_default_peers() {
 generate_config() {
     local keydb_host="$1" kvrocks_host="$2" config_path="$3"
 
-    local peers_json="[]"
-    if [ -n "$PEERS" ]; then
-        peers_json=$(echo "$PEERS" | tr ',' '\n' | awk '{printf "\"%s\",", $0}' | sed 's/,$//' | awk '{print "["$0"]"}')
+    # Build separate JSON arrays for trusted-node (BM) and p2p-node (bob)
+    local trusted_json="[]"
+    local p2p_json="[]"
+    if [ -n "$BM_PEERS" ]; then
+        trusted_json=$(echo "$BM_PEERS" | tr ',' '\n' | awk '{printf "\"%s\",", $0}' | sed 's/,$//' | awk '{print "["$0"]"}')
+    fi
+    if [ -n "$BOB_PEERS" ]; then
+        p2p_json=$(echo "$BOB_PEERS" | tr ',' '\n' | awk '{printf "\"%s\",", $0}' | sed 's/,$//' | awk '{print "["$0"]"}')
     fi
 
     cat > "$config_path" <<CONFIGEOF
 {
-  "p2p-node": ${peers_json},
-  "trusted-node": ${peers_json},
+  "p2p-node": ${p2p_json},
+  "trusted-node": ${trusted_json},
   "request-cycle-ms": 100,
   "request-logging-cycle-ms": 30,
   "future-offset": 3,

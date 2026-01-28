@@ -251,42 +251,38 @@ sudo ufw --force reset
 
 ## 9. Quick Start
 
-Download and run the installer (interactive menu):
+Download and run the installer:
 
 ```bash
 wget -O lite-install.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite-install.sh
 chmod +x lite-install.sh && ./lite-install.sh
 ```
 
-Or use CLI mode directly:
+The script will prompt you for:
+- Mode (docker, manual, or uninstall)
+- Network (mainnet or testnet)
+- Operator seed (for install)
+- Operator alias (for install)
+- Peers (optional, for install)
 
-**Docker -- testnet:**
+**Alternative: CLI mode**
+
+You can also pass all options directly:
 
 ```bash
+# Docker -- testnet
 ./lite-install.sh docker --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --testnet
-```
 
-**Docker -- mainnet:**
-
-```bash
+# Docker -- mainnet
 ./lite-install.sh docker --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers 1.2.3.4,5.6.7.8
-```
 
-**Manual (systemd) -- testnet:**
-
-```bash
+# Manual (systemd) -- testnet
 ./lite-install.sh manual --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --testnet
-```
 
-**Manual (systemd) -- mainnet:**
-
-```bash
+# Manual (systemd) -- mainnet
 ./lite-install.sh manual --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers 1.2.3.4,5.6.7.8
-```
 
-**Uninstall:**
-
-```bash
+# Uninstall
 ./lite-install.sh uninstall
 ```
 
@@ -309,16 +305,14 @@ Or use CLI mode directly:
 
 > **Mainnet:** The script auto-detects the current epoch from [storage.qubic.li/network](https://storage.qubic.li/network/), checks out the matching source version, and downloads the epoch data. Use `--epoch <N>` to target a specific epoch, or `--no-epoch` to skip the data download (if you already have the files).
 
-**Verify (Docker):**
+**Verify:**
 
 ```bash
+# Docker
 docker compose -f /opt/qubic-lite/docker-compose.yml ps       # container status
 docker compose -f /opt/qubic-lite/docker-compose.yml logs -f  # live log output
-```
 
-**Verify (Manual):**
-
-```bash
+# Manual (systemd)
 systemctl status qubic-lite             # service status
 journalctl -u qubic-lite -f             # live log output
 ```
