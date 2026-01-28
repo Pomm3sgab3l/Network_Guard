@@ -139,6 +139,33 @@ setup_firewall() {
     log_ok "fw: enabled ($(ufw status | head -1))"
 }
 
+# --- peer discovery ---
+
+fetch_default_peers() {
+    # fetch peers from qubic.global API when none provided
+    if [ -n "$PEERS" ]; then
+        return
+    fi
+    log_info "fetching default peers from qubic.global..."
+    local resp
+    resp=$(curl -sSf --max-time 10 "https://api.qubic.global/random-peers?service=bobNode&litePeers=4" 2>/dev/null) || {
+        log_warn "could not reach qubic.global API"
+        return
+    }
+    local bob_peers lite_peers
+    bob_peers=$(echo "$resp" | grep -oP '"bobPeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
+    lite_peers=$(echo "$resp" | grep -oP '"litePeers"\s*:\s*\[([^\]]*)\]' | grep -oP '"[^"]+\.\d+"' | tr -d '"')
+    local all=""
+    for ip in $lite_peers; do all="${all:+$all,}${ip}:21841"; done
+    for ip in $bob_peers; do all="${all:+$all,}${ip}:21842"; done
+    if [ -n "$all" ]; then
+        PEERS="$all"
+        log_ok "peers: ${PEERS}"
+    else
+        log_warn "no peers returned from API"
+    fi
+}
+
 # --- config generation ---
 
 generate_config() {
@@ -184,6 +211,7 @@ install_docker_standalone() {
     install_docker_engine
     mkdir -p "${DATA_DIR}" && cd "${DATA_DIR}"
 
+    fetch_default_peers
     generate_config "127.0.0.1" "127.0.0.1" "${DATA_DIR}/bob.json"
 
     cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
@@ -224,6 +252,7 @@ install_docker_compose() {
     install_docker_engine
     mkdir -p "${DATA_DIR}" && cd "${DATA_DIR}"
 
+    fetch_default_peers
     generate_config "keydb" "kvrocks" "${DATA_DIR}/bob.json"
 
     log_info "downloading keydb/kvrocks configs..."
