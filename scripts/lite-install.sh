@@ -129,6 +129,19 @@ build_node_args() {
     echo "$args"
 }
 
+# build docker-compose command as YAML list (safer than string)
+build_docker_command() {
+    local cmd="command: [\"--operator-seed\", \"${OPERATOR_SEED}\", \"--operator-alias\", \"${OPERATOR_ALIAS}\""
+    if [ "$TESTNET" = true ]; then
+        cmd="${cmd}, \"--security-tick\", \"${SECURITY_TICK}\", \"--ticking-delay\", \"${TICKING_DELAY}\""
+    fi
+    if [ -n "$PEERS" ]; then
+        cmd="${cmd}, \"--peers\", \"${PEERS}\""
+    fi
+    cmd="${cmd}]"
+    echo "$cmd"
+}
+
 # --- docker install ---
 
 install_docker() {
@@ -213,8 +226,8 @@ DOCKEREOF
     log_info "building docker image (this takes a while)..."
     docker build -t qubic-lite-node "${DATA_DIR}"
 
-    local node_args
-    node_args=$(build_node_args)
+    local docker_cmd
+    docker_cmd=$(build_docker_command)
 
     cat > "${DATA_DIR}/docker-compose.yml" <<COMPOSEEOF
 services:
@@ -228,7 +241,7 @@ services:
       - "${HTTP_PORT}:${HTTP_PORT}"
     volumes:
       - ${DATA_DIR}/data:/qubic/data
-    command: ${node_args}
+    ${docker_cmd}
 COMPOSEEOF
 
     log_info "starting container..."
@@ -735,6 +748,8 @@ interactive_setup() {
     done
 
     read -rp "Peers (ip1,ip2, comma-separated, Enter to skip): " PEERS
+    # sanitize: remove leading # or whitespace
+    PEERS=$(echo "$PEERS" | sed 's/^[#[:space:]]*//')
     echo ""
 }
 
