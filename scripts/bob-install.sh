@@ -8,6 +8,7 @@
 # Modes:
 #   docker-standalone   all-in-one container (recommended)
 #   docker-compose      modular setup (separate containers)
+#   uninstall           remove bob node completely
 #
 # Options:
 #   --node-seed <seed>      node identity seed (required)
@@ -54,6 +55,7 @@ print_usage() {
     echo "Modes:"
     echo "  docker-standalone   all-in-one container (recommended)"
     echo "  docker-compose      modular (separate containers)"
+    echo "  uninstall           remove bob node completely"
     echo ""
     echo "Options:"
     echo "  --node-seed <seed>     node identity seed (REQUIRED)"
@@ -462,22 +464,75 @@ print_status_manual() {
     echo ""
 }
 
+# --- uninstall ---
+
+do_uninstall() {
+    log_info "uninstalling bob node..."
+
+    # stop and remove docker containers
+    if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
+        log_info "stopping docker containers..."
+        docker compose -f "${DATA_DIR}/docker-compose.yml" down -v 2>/dev/null || true
+        log_ok "containers stopped and volumes removed"
+    fi
+
+    # stop systemd service if exists
+    if systemctl is-active --quiet qubic-bob 2>/dev/null; then
+        log_info "stopping systemd service..."
+        systemctl stop qubic-bob
+        systemctl disable qubic-bob
+        rm -f /etc/systemd/system/qubic-bob.service
+        systemctl daemon-reload
+        log_ok "service removed"
+    fi
+
+    # remove install directory
+    if [ -d "${DATA_DIR}" ]; then
+        log_info "removing ${DATA_DIR}..."
+        rm -rf "${DATA_DIR}"
+        log_ok "directory removed"
+    fi
+
+    # ask about firewall reset
+    echo ""
+    read -rp "Reset firewall rules? [y/N]: " reset_fw
+    if [[ "$reset_fw" =~ ^[Yy]$ ]]; then
+        if command -v ufw &> /dev/null; then
+            ufw --force disable > /dev/null 2>&1
+            ufw --force reset > /dev/null 2>&1
+            log_ok "firewall reset"
+        else
+            log_warn "ufw not installed"
+        fi
+    fi
+
+    echo ""
+    log_ok "bob node uninstalled"
+}
+
 # --- interactive setup ---
 
 interactive_setup() {
     echo ""
-    echo -e "${CYAN}Select installation mode:${NC}"
+    echo -e "${CYAN}Select mode:${NC}"
     echo "  1) docker-standalone   (all-in-one container, recommended)"
     echo "  2) docker-compose      (separate containers)"
+    echo "  3) uninstall           (remove bob node)"
     echo ""
     while true; do
-        read -rp "Enter choice [1/2]: " choice
+        read -rp "Enter choice [1/2/3]: " choice
         case "$choice" in
             1) MODE="docker-standalone"; break ;;
             2) MODE="docker-compose";    break ;;
-            *) echo "  Please enter 1 or 2." ;;
+            3) MODE="uninstall";         break ;;
+            *) echo "  Please enter 1, 2, or 3." ;;
         esac
     done
+
+    # skip seed/alias prompts for uninstall
+    if [ "$MODE" = "uninstall" ]; then
+        return
+    fi
 
     echo ""
     while [ -z "$NODE_SEED" ]; do
@@ -526,6 +581,12 @@ main() {
     echo -e "${CYAN}=== qubic bob node installer ===${NC}"
     parse_args "$@"
     check_root
+
+    # handle uninstall separately
+    if [ "$MODE" = "uninstall" ]; then
+        do_uninstall
+        exit 0
+    fi
 
     if [ -n "$FIREWALL_MODE" ] && [ "$FIREWALL_MODE" != "closed" ] && [ "$FIREWALL_MODE" != "open" ]; then
         log_error "unknown firewall mode: ${FIREWALL_MODE} (use: closed | open)"

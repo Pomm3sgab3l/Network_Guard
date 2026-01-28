@@ -67,10 +67,10 @@ chmod +x bob-install.sh && ./bob-install.sh
 ```
 
 The script will prompt you for:
-- Installation mode (docker-standalone or docker-compose)
-- Node seed
-- Node alias
-- Peers (optional)
+- Mode (docker-standalone, docker-compose, or uninstall)
+- Node seed (for install)
+- Node alias (for install)
+- Peers (optional, for install)
 
 **Alternative: CLI mode**
 
@@ -82,6 +82,9 @@ You can also pass all options directly:
 
 # Separate containers
 ./bob-install.sh docker-compose --node-seed YOUR_SEED --node-alias YOUR_ALIAS --peers 1.2.3.4:21841
+
+# Uninstall
+./bob-install.sh uninstall
 ```
 
 **Options:**
