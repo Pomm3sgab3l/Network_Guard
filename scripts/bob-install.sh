@@ -226,15 +226,16 @@ parse_manual_peers() {
 generate_config() {
     local keydb_host="$1" kvrocks_host="$2" config_path="$3"
 
-    # Build JSON array for p2p-node (BM peers only)
-    local p2p_json="[]"
+    # Build JSON array for trusted-node (BM peers)
+    local trusted_json="[]"
     if [ -n "$BM_PEERS" ]; then
-        p2p_json=$(echo "$BM_PEERS" | tr ',' '\n' | awk '{printf "\"%s\",", $0}' | sed 's/,$//' | awk '{print "["$0"]"}')
+        trusted_json=$(echo "$BM_PEERS" | tr ',' '\n' | awk '{printf "\"%s\",", $0}' | sed 's/,$//' | awk '{print "["$0"]"}')
     fi
 
     cat > "$config_path" <<CONFIGEOF
 {
-  "p2p-node": ${p2p_json},
+  "p2p-node": [],
+  "trusted-node": ${trusted_json},
   "request-cycle-ms": 100,
   "request-logging-cycle-ms": 30,
   "future-offset": 3,
@@ -242,6 +243,7 @@ generate_config() {
   "keydb-url": "tcp://${keydb_host}:6379",
   "run-server": true,
   "server-port": ${SERVER_PORT},
+  "rpc-port": ${RPC_PORT},
   "arbitrator-identity": "${ARBITRATOR_ID}",
   "tick-storage-mode": "kvrocks",
   "kvrocks-url": "tcp://${kvrocks_host}:6666",
@@ -271,13 +273,13 @@ install_docker_standalone() {
     cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
 services:
   qubic-bob:
-    image: j0et0m/qubic-bob-standalone:rpc
+    image: j0et0m/qubic-bob-standalone:latest
     restart: unless-stopped
     ports:
       - "21842:21842"
       - "40420:40420"
     volumes:
-      - ./bob.json:/app/bob.json:ro
+      - ./bob.json:/app/config/bob.json:ro
       - qubic-bob-redis:/data/redis
       - qubic-bob-kvrocks:/data/kvrocks
       - qubic-bob-data:/data/bob
@@ -318,15 +320,13 @@ install_docker_compose() {
     cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
 services:
   qubic-bob:
-    image: j0et0m/qubicbob:latest
+    image: j0et0m/qubic-bob:prod
     restart: unless-stopped
-    entrypoint: ["/app/bob", "/app/bob.json"]
-    working_dir: /data/bob
     ports:
       - "21842:21842"
       - "40420:40420"
     volumes:
-      - ./bob.json:/app/bob.json:ro
+      - ./bob.json:/app/config/bob.json:ro
       - qubic-bob-data:/data/bob
     depends_on:
       keydb:
@@ -339,12 +339,12 @@ services:
   keydb:
     image: eqalpha/keydb:latest
     restart: unless-stopped
+    command: keydb-server /etc/keydb/keydb.conf
     ports:
       - "6379:6379"
     volumes:
       - ./keydb.conf:/etc/keydb/keydb.conf:ro
       - qubic-bob-keydb:/data
-    command: keydb-server /etc/keydb/keydb.conf
     healthcheck:
       test: ["CMD", "keydb-cli", "ping"]
       interval: 5s
@@ -356,11 +356,12 @@ services:
   kvrocks:
     image: apache/kvrocks:latest
     restart: unless-stopped
+    command: kvrocks -c /var/lib/kvrocks/kvrocks.conf
     ports:
       - "6666:6666"
     volumes:
       - ./kvrocks.conf:/var/lib/kvrocks/kvrocks.conf:ro
-      - qubic-bob-kvrocks:/data
+      - qubic-bob-kvrocks:/var/lib/kvrocks
     healthcheck:
       test: ["CMD", "redis-cli", "-p", "6666", "ping"]
       interval: 5s
