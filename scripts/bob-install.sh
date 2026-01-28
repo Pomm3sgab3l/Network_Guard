@@ -211,6 +211,17 @@ parse_manual_peers() {
             log_warn "skipping invalid peer format: $peer"
         fi
     done
+
+    # Auto-add fallback peers if missing (bob needs both trusted and p2p peers)
+    if [ -z "$BM_PEERS" ]; then
+        log_info "no BM peers specified, adding fallback trusted-nodes..."
+        BM_PEERS="$FALLBACK_BM_PEERS"
+    fi
+    if [ -z "$BOB_PEERS" ]; then
+        log_info "no bob peers specified, adding fallback p2p-nodes..."
+        BOB_PEERS="$FALLBACK_BOB_PEERS"
+    fi
+
     log_ok "trusted (BM): ${BM_PEERS:-none}"
     log_ok "p2p (bob): ${BOB_PEERS:-none}"
 }
