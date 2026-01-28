@@ -251,14 +251,14 @@ sudo ufw --force reset
 
 ## 9. Quick Start
 
-Download the installer:
+Download and run the installer (interactive menu):
 
 ```bash
 wget -O lite-install.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite-install.sh
-chmod +x lite-install.sh
+chmod +x lite-install.sh && ./lite-install.sh
 ```
 
-Pick a mode:
+Or use CLI mode directly:
 
 **Docker -- testnet:**
 
@@ -282,6 +282,12 @@ Pick a mode:
 
 ```bash
 ./lite-install.sh manual --operator-seed YOUR_SEED --operator-alias YOUR_ALIAS --peers 1.2.3.4,5.6.7.8
+```
+
+**Uninstall:**
+
+```bash
+./lite-install.sh uninstall
 ```
 
 **Options:**

@@ -1,11 +1,14 @@
 #!/bin/bash
 # lite-install.sh - Qubic Lite Node installer
 #
-# Usage: ./lite-install.sh <mode> [options]
+# Usage:
+#   Interactive:  ./lite-install.sh
+#   CLI:          ./lite-install.sh <mode> --operator-seed <seed> --operator-alias <alias> [options]
 #
 # Modes:
 #   docker     build + run via docker
 #   manual     build from source + systemd
+#   uninstall  remove lite node completely
 #
 # Options:
 #   --peers <ip1,ip2,...>   peer IPs
@@ -22,6 +25,9 @@
 #   --no-epoch              skip automatic epoch data download (mainnet)
 
 set -e
+
+# resolve own path before any cd changes the working directory
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
 # defaults
 MODE=""
@@ -51,20 +57,23 @@ log_warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
 log_error() { echo -e "${RED}[-]${NC} $1"; }
 
 print_usage() {
-    echo "Usage: $0 <mode> [options]"
+    echo "Usage:"
+    echo "  Interactive:  $0"
+    echo "  CLI:          $0 <mode> --operator-seed <seed> --operator-alias <alias> [options]"
     echo ""
     echo "Modes:"
-    echo "  docker     build + run via docker"
+    echo "  docker     build + run via docker (recommended)"
     echo "  manual     build from source + systemd"
+    echo "  uninstall  remove lite node completely"
     echo ""
     echo "Options:"
+    echo "  --operator-seed <seed>  operator identity seed (REQUIRED)"
+    echo "  --operator-alias <alias> operator alias name (REQUIRED)"
     echo "  --peers <ip1,ip2,...>   peer IPs"
     echo "  --testnet               testnet mode (default: mainnet)"
     echo "  --port <port>           P2P port (default: 21841)"
     echo "  --http-port <port>      HTTP/RPC port (default: 41841)"
     echo "  --data-dir <path>       install dir (default: /opt/qubic-lite)"
-    echo "  --operator-seed <seed>  operator identity seed (REQUIRED)"
-    echo "  --operator-alias <alias> operator alias name (REQUIRED)"
     echo "  --avx512                enable AVX-512"
     echo "  --security-tick <n>     quorum bypass, testnet only (default: 32)"
     echo "  --ticking-delay <n>     tick delay ms, testnet only (default: 1000)"
@@ -629,12 +638,111 @@ print_status_manual() {
     fi
 }
 
+# --- uninstall ---
+
+do_uninstall() {
+    log_info "uninstalling lite node..."
+
+    # stop and remove docker containers
+    if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
+        log_info "stopping docker containers..."
+        docker compose -f "${DATA_DIR}/docker-compose.yml" down -v 2>/dev/null || true
+        log_ok "containers stopped and volumes removed"
+    fi
+
+    # remove docker image
+    if docker image inspect qubic-lite-node &>/dev/null; then
+        log_info "removing docker image..."
+        docker rmi qubic-lite-node 2>/dev/null || true
+        log_ok "docker image removed"
+    fi
+
+    # stop systemd service if exists
+    if systemctl is-active --quiet qubic-lite 2>/dev/null; then
+        log_info "stopping systemd service..."
+        systemctl stop qubic-lite
+        systemctl disable qubic-lite
+        rm -f /etc/systemd/system/qubic-lite.service
+        systemctl daemon-reload
+        log_ok "service removed"
+    elif [ -f /etc/systemd/system/qubic-lite.service ]; then
+        log_info "removing systemd service file..."
+        systemctl disable qubic-lite 2>/dev/null || true
+        rm -f /etc/systemd/system/qubic-lite.service
+        systemctl daemon-reload
+        log_ok "service removed"
+    fi
+
+    # remove install directory
+    if [ -d "${DATA_DIR}" ]; then
+        log_info "removing ${DATA_DIR}..."
+        rm -rf "${DATA_DIR}"
+        log_ok "directory removed"
+    fi
+
+    echo ""
+    log_ok "lite node uninstalled"
+}
+
+# --- interactive setup ---
+
+interactive_setup() {
+    echo ""
+    echo -e "${CYAN}Select mode:${NC}"
+    echo "  1) docker    (build + run via docker, recommended)"
+    echo "  2) manual    (build from source + systemd)"
+    echo "  3) uninstall (remove lite node)"
+    echo ""
+    while true; do
+        read -rp "Enter choice [1/2/3]: " choice
+        case "$choice" in
+            1) MODE="docker";    break ;;
+            2) MODE="manual";    break ;;
+            3) MODE="uninstall"; break ;;
+            *) echo "  Please enter 1, 2, or 3." ;;
+        esac
+    done
+
+    # skip remaining prompts for uninstall
+    if [ "$MODE" = "uninstall" ]; then
+        return
+    fi
+
+    echo ""
+    echo -e "${CYAN}Network:${NC}"
+    echo "  1) mainnet"
+    echo "  2) testnet"
+    echo ""
+    while true; do
+        read -rp "Enter choice [1/2]: " net_choice
+        case "$net_choice" in
+            1) TESTNET=false; break ;;
+            2) TESTNET=true;  break ;;
+            *) echo "  Please enter 1 or 2." ;;
+        esac
+    done
+
+    echo ""
+    while [ -z "$OPERATOR_SEED" ]; do
+        read -rp "Operator seed: " OPERATOR_SEED
+        [ -z "$OPERATOR_SEED" ] && echo "  Operator seed is required."
+    done
+
+    while [ -z "$OPERATOR_ALIAS" ]; do
+        read -rp "Operator alias: " OPERATOR_ALIAS
+        [ -z "$OPERATOR_ALIAS" ] && echo "  Operator alias is required."
+    done
+
+    read -rp "Peers (ip1,ip2, comma-separated, Enter to skip): " PEERS
+    echo ""
+}
+
 # --- arg parsing ---
 
 parse_args() {
     if [ $# -eq 0 ]; then
-        print_usage
-        exit 1
+        interactive_setup
+        return
     fi
 
     MODE="$1"; shift
@@ -666,6 +774,12 @@ main() {
     parse_args "$@"
     check_root
 
+    # handle uninstall separately
+    if [ "$MODE" = "uninstall" ]; then
+        do_uninstall
+        exit 0
+    fi
+
     if [ -z "$OPERATOR_SEED" ]; then
         log_error "--operator-seed is required."
         print_usage
@@ -686,11 +800,11 @@ main() {
         *) log_error "unknown mode: ${MODE}"; print_usage; exit 1 ;;
     esac
 
-    # cleanup: remove installer script
-    local script_path
-    script_path="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-    rm -f "$script_path"
-    log_ok "installer removed: ${script_path}"
+    # self-cleanup: remove installer script after successful run
+    if [ -f "$SELF" ]; then
+        rm -f "$SELF"
+        log_ok "installer removed (${SELF})"
+    fi
 }
 
 main "$@"
