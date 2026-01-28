@@ -248,7 +248,9 @@ generate_config() {
   "tx-storage-mode": "kvrocks",
   "tx_tick_to_live": 10000,
   "max-thread": ${MAX_THREADS},
-  "spam-qu-threshold": 100
+  "spam-qu-threshold": 100,
+  "node-seed": "${NODE_SEED}",
+  "node-alias": "${NODE_ALIAS}"
 }
 CONFIGEOF
 
