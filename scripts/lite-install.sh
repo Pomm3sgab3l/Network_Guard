@@ -62,15 +62,16 @@ fetch_peers_from_api() {
     local api_url="https://api.qubic.global/random-peers?service=bobNode&litePeers=8"
     local manual_url="https://app.qubic.li/network/live"
 
-    log_info "fetching peers from API..."
+    # all log output to stderr so stdout only contains the peer list
+    log_info "fetching peers from API..." >&2
 
     local response
     response=$(curl -sf --connect-timeout 10 --max-time 30 "${api_url}" 2>/dev/null || true)
 
     if [ -z "$response" ]; then
-        log_warn "API not reachable: ${api_url}"
-        log_warn "please find peers manually at: ${manual_url}"
-        log_warn "look for active nodes and copy their IPs"
+        log_warn "API not reachable: ${api_url}" >&2
+        log_warn "please find peers manually at: ${manual_url}" >&2
+        log_warn "look for active nodes and copy their IPs" >&2
         return 1
     fi
 
@@ -79,8 +80,8 @@ fetch_peers_from_api() {
     peers_json=$(echo "$response" | grep -oP '"litePeers"\s*:\s*\[[^\]]*\]' | grep -oP '\[[^\]]*\]' || true)
 
     if [ -z "$peers_json" ] || [ "$peers_json" = "[]" ]; then
-        log_warn "no litePeers found in API response"
-        log_warn "please find peers manually at: ${manual_url}"
+        log_warn "no litePeers found in API response" >&2
+        log_warn "please find peers manually at: ${manual_url}" >&2
         return 1
     fi
 
@@ -89,15 +90,16 @@ fetch_peers_from_api() {
     peers_csv=$(echo "$peers_json" | tr -d '[]"' | tr ',' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -8 | tr '\n' ',' | sed 's/,$//')
 
     if [ -z "$peers_csv" ]; then
-        log_warn "could not parse peers from API"
-        log_warn "please find peers manually at: ${manual_url}"
+        log_warn "could not parse peers from API" >&2
+        log_warn "please find peers manually at: ${manual_url}" >&2
         return 1
     fi
 
     local peer_count
     peer_count=$(echo "$peers_csv" | tr ',' '\n' | wc -l)
-    log_ok "found ${peer_count} peers from API"
+    log_ok "found ${peer_count} peers from API" >&2
 
+    # only output the peer list to stdout
     echo "$peers_csv"
     return 0
 }
