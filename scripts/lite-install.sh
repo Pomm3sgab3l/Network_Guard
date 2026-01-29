@@ -32,6 +32,7 @@
 #   --epoch <N>             build for specific epoch (auto-detected if omitted)
 #   --no-epoch              skip automatic epoch data download (mainnet)
 #   --threads <N>           build threads (default: auto/all cores)
+#   --processors <N>        max runtime processors (default: 8, patched in source)
 
 set -e
 
@@ -55,6 +56,7 @@ SKIP_EPOCH=false
 TARGET_EPOCH=""
 DETECTED_EPOCH=""
 BUILD_THREADS=""
+MAX_PROCESSORS=""
 CLANG_C="clang"
 CLANG_CXX="clang++"
 APT_WAIT="-o DPkg::Lock::Timeout=60"
@@ -239,6 +241,10 @@ install_docker() {
 
     # checkout matching source version for the target epoch
     checkout_epoch "${DATA_DIR}/qubic-core-lite" "$epoch"
+
+    # patch max processors if specified
+    patch_max_processors "${DATA_DIR}/qubic-core-lite" "$MAX_PROCESSORS"
+
     cd "${DATA_DIR}"
 
     # download epoch data
@@ -359,6 +365,9 @@ install_manual() {
 
     # checkout matching source version for the target epoch
     checkout_epoch "${DATA_DIR}/qubic-core-lite" "$epoch"
+
+    # patch max processors if specified
+    patch_max_processors "${DATA_DIR}/qubic-core-lite" "$MAX_PROCESSORS"
 
     # download epoch data
     mkdir -p "${DATA_DIR}/data"
@@ -670,6 +679,36 @@ checkout_epoch() {
     log_ok "checked out epoch ${verify_epoch} (TICK ${verify_tick}, commit ${target_commit:0:8})"
 }
 
+# --- patch max processors ---
+
+patch_max_processors() {
+    local src_dir="$1"
+    local max_procs="$2"
+    local settings_file="${src_dir}/src/public_settings.h"
+
+    if [ -z "$max_procs" ]; then
+        return
+    fi
+
+    if [ ! -f "$settings_file" ]; then
+        log_warn "public_settings.h not found, skipping processor patch"
+        return
+    fi
+
+    log_info "patching MAX_NUMBER_OF_PROCESSORS to ${max_procs}..."
+    # patch both TESTNET and mainnet definitions
+    sed -i "s/#define MAX_NUMBER_OF_PROCESSORS [0-9]*/#define MAX_NUMBER_OF_PROCESSORS ${max_procs}/g" "$settings_file"
+
+    # verify
+    local verify_procs
+    verify_procs=$(grep -oP '#define\s+MAX_NUMBER_OF_PROCESSORS\s+\K[0-9]+' "$settings_file" || true)
+    if [ "$verify_procs" = "$max_procs" ]; then
+        log_ok "MAX_NUMBER_OF_PROCESSORS set to ${max_procs}"
+    else
+        log_warn "patch may have failed, check public_settings.h"
+    fi
+}
+
 # --- status output ---
 
 print_status_docker() {
@@ -943,9 +982,9 @@ interactive_setup() {
     done
 
     echo ""
-    read -rp "Build threads (Enter for auto, 0=auto): " input_threads
-    if [ -n "$input_threads" ] && [ "$input_threads" != "0" ]; then
-        BUILD_THREADS="$input_threads"
+    read -rp "Max processors (Enter for default=8): " input_processors
+    if [ -n "$input_processors" ] && [ "$input_processors" != "0" ]; then
+        MAX_PROCESSORS="$input_processors"
     fi
 
     # automatically fetch peers from API
@@ -993,6 +1032,7 @@ parse_args() {
             --epoch)         TARGET_EPOCH="$2";   shift 2 ;;
             --no-epoch)      SKIP_EPOCH=true;     shift   ;;
             --threads)       BUILD_THREADS="$2";  shift 2 ;;
+            --processors)    MAX_PROCESSORS="$2"; shift 2 ;;
             --help|-h)       print_usage;         exit 0  ;;
             *) log_error "unknown option: $1"; print_usage; exit 1 ;;
         esac
