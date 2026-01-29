@@ -103,8 +103,8 @@ You can also pass all options directly:
 **Verify:**
 
 ```bash
-docker compose -f /opt/qubic-bob/docker-compose.yml ps       # container status
-docker compose -f /opt/qubic-bob/docker-compose.yml logs -f  # live log output
+/opt/qubic-bob/bob-install.sh status   # container status
+/opt/qubic-bob/bob-install.sh logs     # live log output
 ```
 
 ## 3. Configuration
@@ -179,28 +179,23 @@ sudo ufw status
 
 ## 5. Maintenance
 
-Pick the section that matches how you installed.
-
-**Docker via install script** (section 2):
-
-Update to latest image:
+After installation, use the script in `/opt/qubic-bob/` for management:
 
 ```bash
-docker compose -f /opt/qubic-bob/docker-compose.yml pull
-docker compose -f /opt/qubic-bob/docker-compose.yml up -d
+/opt/qubic-bob/bob-install.sh status    # show container status
+/opt/qubic-bob/bob-install.sh logs      # show live logs (Ctrl+C to exit)
+/opt/qubic-bob/bob-install.sh stop      # stop containers
+/opt/qubic-bob/bob-install.sh start     # start containers
+/opt/qubic-bob/bob-install.sh restart   # restart containers
+/opt/qubic-bob/bob-install.sh update    # pull latest image + restart
 ```
 
-Stop all containers:
+**Full reset (deletes all data):**
 
 ```bash
-docker compose -f /opt/qubic-bob/docker-compose.yml down
-```
-
-Full reset (deletes all data):
-
-```bash
-docker compose -f /opt/qubic-bob/docker-compose.yml down
+/opt/qubic-bob/bob-install.sh stop
 docker volume rm qubic-bob-redis qubic-bob-kvrocks qubic-bob-data
+/opt/qubic-bob/bob-install.sh start
 ```
 
 ## 6. Uninstall
@@ -308,13 +303,8 @@ You can also pass all options directly:
 **Verify:**
 
 ```bash
-# Docker
-docker compose -f /opt/qubic-lite/docker-compose.yml ps       # container status
-docker compose -f /opt/qubic-lite/docker-compose.yml logs -f  # live log output
-
-# Manual (systemd)
-systemctl status qubic-lite             # service status
-journalctl -u qubic-lite -f             # live log output
+/opt/qubic-lite/lite-install.sh status   # container/service status
+/opt/qubic-lite/lite-install.sh logs     # live log output
 ```
 
 ## 10. CLI Arguments & Config
@@ -348,35 +338,18 @@ http://localhost:41841/query/v1   # query API
 
 ## 12. Maintenance
 
-Pick the section that matches how you installed.
-
-**Docker** (section 9):
-
-Rebuild and restart:
+After installation, use the script in `/opt/qubic-lite/` for management:
 
 ```bash
-docker build -t qubic-lite-node /opt/qubic-lite && docker compose -f /opt/qubic-lite/docker-compose.yml up -d
+/opt/qubic-lite/lite-install.sh status    # show status
+/opt/qubic-lite/lite-install.sh logs      # show live logs (Ctrl+C to exit)
+/opt/qubic-lite/lite-install.sh stop      # stop node
+/opt/qubic-lite/lite-install.sh start     # start node
+/opt/qubic-lite/lite-install.sh restart   # restart node
+/opt/qubic-lite/lite-install.sh update    # rebuild + restart (docker only)
 ```
 
-Stop and remove container:
-
-```bash
-docker compose -f /opt/qubic-lite/docker-compose.yml down
-```
-
-**Manual / systemd** (section 9, manual mode):
-
-Restart:
-
-```bash
-systemctl restart qubic-lite
-```
-
-Stop:
-
-```bash
-systemctl stop qubic-lite
-```
+These commands work for both Docker and manual (systemd) installations.
 
 ## 13. Uninstall
 

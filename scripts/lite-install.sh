@@ -1,14 +1,22 @@
 #!/bin/bash
-# lite-install.sh - Qubic Lite Node installer
+# lite-install.sh - Qubic Lite Node installer & manager
 #
 # Usage:
 #   Interactive:  ./lite-install.sh
-#   CLI:          ./lite-install.sh <mode> --operator-seed <seed> --operator-alias <alias> [options]
+#   CLI:          ./lite-install.sh <mode> [options]
 #
-# Modes:
+# Install modes:
 #   docker     build + run via docker
 #   manual     build from source + systemd
 #   uninstall  remove lite node completely
+#
+# Management modes:
+#   status     show container/service status
+#   logs       show live logs (Ctrl+C to exit)
+#   stop       stop container/service
+#   start      start container/service
+#   restart    restart container/service
+#   update     rebuild + restart (docker only)
 #
 # Options:
 #   --peers <ip1,ip2,...>   peer IPs
@@ -17,8 +25,8 @@
 #   --http-port <port>      HTTP/RPC port (default: 41841)
 #   --data-dir <path>       install dir (default: /opt/qubic-lite)
 #   --avx512                enable AVX-512
-#   --operator-seed <seed>  operator identity seed (required)
-#   --operator-alias <alias> operator alias name (required)
+#   --operator-seed <seed>  operator identity seed (required for install)
+#   --operator-alias <alias> operator alias name (required for install)
 #   --security-tick <n>     quorum bypass interval, testnet (default: 32)
 #   --ticking-delay <n>     tick delay ms, testnet (default: 1000)
 #   --epoch <N>             build for specific epoch (auto-detected if omitted)
@@ -107,16 +115,24 @@ fetch_peers_from_api() {
 print_usage() {
     echo "Usage:"
     echo "  Interactive:  $0"
-    echo "  CLI:          $0 <mode> --operator-seed <seed> --operator-alias <alias> [options]"
+    echo "  CLI:          $0 <mode> [options]"
     echo ""
-    echo "Modes:"
+    echo "Modes (install):"
     echo "  docker     build + run via docker (recommended)"
     echo "  manual     build from source + systemd"
     echo "  uninstall  remove lite node completely"
     echo ""
+    echo "Modes (manage):"
+    echo "  status     show container/service status"
+    echo "  logs       show live logs (Ctrl+C to exit)"
+    echo "  stop       stop container/service"
+    echo "  start      start container/service"
+    echo "  restart    restart container/service"
+    echo "  update     rebuild + restart (docker only)"
+    echo ""
     echo "Options:"
-    echo "  --operator-seed <seed>  operator identity seed (REQUIRED)"
-    echo "  --operator-alias <alias> operator alias name (REQUIRED)"
+    echo "  --operator-seed <seed>  operator identity seed (REQUIRED for install)"
+    echo "  --operator-alias <alias> operator alias name (REQUIRED for install)"
     echo "  --peers <ip1,ip2,...>   peer IPs"
     echo "  --testnet               testnet mode (default: mainnet)"
     echo "  --port <port>           P2P port (default: 21841)"
@@ -746,6 +762,117 @@ do_uninstall() {
     log_ok "lite node uninstalled"
 }
 
+# --- management commands ---
+
+detect_install_type() {
+    # returns: "docker", "manual", or "none"
+    if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
+        echo "docker"
+    elif systemctl list-unit-files qubic-lite.service &>/dev/null; then
+        echo "manual"
+    else
+        echo "none"
+    fi
+}
+
+check_installed() {
+    local install_type
+    install_type=$(detect_install_type)
+    if [ "$install_type" = "none" ]; then
+        log_error "lite node not installed in ${DATA_DIR}"
+        log_info "run '$0 docker' or '$0 manual' to install"
+        exit 1
+    fi
+}
+
+cmd_status() {
+    check_installed
+    local install_type
+    install_type=$(detect_install_type)
+    echo ""
+    if [ "$install_type" = "docker" ]; then
+        log_info "container status:"
+        docker compose -f "${DATA_DIR}/docker-compose.yml" ps
+    else
+        log_info "service status:"
+        systemctl status qubic-lite --no-pager || true
+    fi
+    echo ""
+    log_info "checking HTTP endpoint..."
+    local api_response
+    api_response=$(curl -sf --max-time 5 "http://localhost:${HTTP_PORT}/live/v1" 2>/dev/null) && {
+        echo "$api_response" | head -c 500
+        echo ""
+    } || log_warn "HTTP not responding on port ${HTTP_PORT}"
+}
+
+cmd_logs() {
+    check_installed
+    local install_type
+    install_type=$(detect_install_type)
+    log_info "showing live logs (Ctrl+C to exit)..."
+    if [ "$install_type" = "docker" ]; then
+        docker compose -f "${DATA_DIR}/docker-compose.yml" logs -f
+    else
+        journalctl -u qubic-lite -f
+    fi
+}
+
+cmd_stop() {
+    check_installed
+    local install_type
+    install_type=$(detect_install_type)
+    log_info "stopping..."
+    if [ "$install_type" = "docker" ]; then
+        docker compose -f "${DATA_DIR}/docker-compose.yml" stop
+    else
+        systemctl stop qubic-lite
+    fi
+    log_ok "stopped"
+}
+
+cmd_start() {
+    check_installed
+    local install_type
+    install_type=$(detect_install_type)
+    log_info "starting..."
+    if [ "$install_type" = "docker" ]; then
+        docker compose -f "${DATA_DIR}/docker-compose.yml" start
+    else
+        systemctl start qubic-lite
+    fi
+    log_ok "started"
+}
+
+cmd_restart() {
+    check_installed
+    local install_type
+    install_type=$(detect_install_type)
+    log_info "restarting..."
+    if [ "$install_type" = "docker" ]; then
+        docker compose -f "${DATA_DIR}/docker-compose.yml" restart
+    else
+        systemctl restart qubic-lite
+    fi
+    log_ok "restarted"
+}
+
+cmd_update() {
+    check_installed
+    local install_type
+    install_type=$(detect_install_type)
+    if [ "$install_type" = "manual" ]; then
+        log_error "update command only works with docker install"
+        log_info "for manual install: cd ${DATA_DIR}/qubic-core-lite && git pull && rebuild"
+        exit 1
+    fi
+    log_info "rebuilding docker image..."
+    docker build -t qubic-lite-node "${DATA_DIR}"
+    log_info "restarting container..."
+    docker compose -f "${DATA_DIR}/docker-compose.yml" up -d
+    log_ok "update complete"
+}
+
 # --- interactive setup ---
 
 interactive_setup() {
@@ -754,19 +881,33 @@ interactive_setup() {
     echo "  1) docker    (build + run via docker, recommended)"
     echo "  2) manual    (build from source + systemd)"
     echo "  3) uninstall (remove lite node)"
+    echo "  ─────────────────────────────────────────────"
+    echo "  4) status    (show status)"
+    echo "  5) logs      (show live logs)"
+    echo "  6) stop      (stop node)"
+    echo "  7) start     (start node)"
+    echo "  8) restart   (restart node)"
+    echo "  9) update    (rebuild + restart, docker only)"
     echo ""
     while true; do
-        read -rp "Enter choice [1/2/3]: " choice
+        read -rp "Enter choice [1-9]: " choice
         case "$choice" in
             1) MODE="docker";    break ;;
             2) MODE="manual";    break ;;
             3) MODE="uninstall"; break ;;
-            *) echo "  Please enter 1, 2, or 3." ;;
+            4) MODE="status";    break ;;
+            5) MODE="logs";      break ;;
+            6) MODE="stop";      break ;;
+            7) MODE="start";     break ;;
+            8) MODE="restart";   break ;;
+            9) MODE="update";    break ;;
+            *) echo "  Please enter 1-9." ;;
         esac
     done
 
-    # skip remaining prompts for uninstall
-    if [ "$MODE" = "uninstall" ]; then
+    # skip remaining prompts for uninstall and management commands
+    if [ "$MODE" = "uninstall" ] || [ "$MODE" = "status" ] || [ "$MODE" = "logs" ] || \
+       [ "$MODE" = "stop" ] || [ "$MODE" = "start" ] || [ "$MODE" = "restart" ] || [ "$MODE" = "update" ]; then
         return
     fi
 
@@ -858,6 +999,16 @@ main() {
         exit 0
     fi
 
+    # handle management commands (no seed/system check needed)
+    case "$MODE" in
+        status)  cmd_status;  exit 0 ;;
+        logs)    cmd_logs;    exit 0 ;;
+        stop)    cmd_stop;    exit 0 ;;
+        start)   cmd_start;   exit 0 ;;
+        restart) cmd_restart; exit 0 ;;
+        update)  cmd_update;  exit 0 ;;
+    esac
+
     if [ -z "$OPERATOR_SEED" ]; then
         log_error "--operator-seed is required."
         print_usage
@@ -888,10 +1039,12 @@ main() {
         *) log_error "unknown mode: ${MODE}"; print_usage; exit 1 ;;
     esac
 
-    # self-cleanup: remove installer script after successful run
-    if [ -f "$SELF" ]; then
+    # copy script to install directory for future management
+    if [ -f "$SELF" ] && [ "$SELF" != "${DATA_DIR}/lite-install.sh" ]; then
+        cp "$SELF" "${DATA_DIR}/lite-install.sh"
+        chmod +x "${DATA_DIR}/lite-install.sh"
+        log_ok "script copied to ${DATA_DIR}/lite-install.sh"
         rm -f "$SELF"
-        log_ok "installer removed (${SELF})"
     fi
 }
 

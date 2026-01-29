@@ -1,18 +1,26 @@
 #!/bin/bash
-# bob-install.sh - Qubic Bob Node installer
+# bob-install.sh - Qubic Bob Node installer & manager
 #
 # Usage:
 #   Interactive:  ./bob-install.sh
-#   CLI:          ./bob-install.sh <mode> --node-seed <seed> --node-alias <alias> [options]
+#   CLI:          ./bob-install.sh <mode> [options]
 #
-# Modes:
+# Install modes:
 #   docker-standalone   all-in-one container (recommended)
 #   docker-compose      modular setup (separate containers)
 #   uninstall           remove bob node completely
 #
+# Management modes:
+#   status              show container status
+#   logs                show live logs (Ctrl+C to exit)
+#   stop                stop containers
+#   start               start containers
+#   restart             restart containers
+#   update              pull latest image + restart
+#
 # Options:
-#   --node-seed <seed>      node identity seed (required)
-#   --node-alias <alias>    node alias name (required)
+#   --node-seed <seed>      node identity seed (required for install)
+#   --node-alias <alias>    node alias name (required for install)
 #   --peers <ip:port,...>   peers to sync from
 #   --threads <n>           max threads (0=auto)
 #   --rpc-port <port>       REST API port (default: 40420)
@@ -54,14 +62,22 @@ print_usage() {
     echo "  Interactive:  $0"
     echo "  CLI:          $0 <mode> --node-seed <seed> --node-alias <alias> [options]"
     echo ""
-    echo "Modes:"
+    echo "Modes (install):"
     echo "  docker-standalone   all-in-one container (recommended)"
     echo "  docker-compose      modular (separate containers)"
     echo "  uninstall           remove bob node completely"
     echo ""
+    echo "Modes (manage):"
+    echo "  status              show container status"
+    echo "  logs                show live logs (Ctrl+C to exit)"
+    echo "  stop                stop containers"
+    echo "  start               start containers"
+    echo "  restart             restart containers"
+    echo "  update              pull latest image + restart"
+    echo ""
     echo "Options:"
-    echo "  --node-seed <seed>     node identity seed (REQUIRED)"
-    echo "  --node-alias <alias>   node alias name (REQUIRED)"
+    echo "  --node-seed <seed>     node identity seed (REQUIRED for install)"
+    echo "  --node-alias <alias>   node alias name (REQUIRED for install)"
     echo "  --peers <ip:port,...>  peers to sync from"
     echo "  --threads <n>          max threads (0=auto)"
     echo "  --rpc-port <port>      REST API port (default: 40420)"
@@ -691,6 +707,66 @@ do_uninstall() {
     log_ok "bob node uninstalled"
 }
 
+# --- management commands ---
+
+check_installed() {
+    if [ ! -f "${DATA_DIR}/docker-compose.yml" ]; then
+        log_error "bob node not installed in ${DATA_DIR}"
+        log_info "run '$0 docker-standalone' to install"
+        exit 1
+    fi
+}
+
+cmd_status() {
+    check_installed
+    echo ""
+    log_info "container status:"
+    docker compose -f "${DATA_DIR}/docker-compose.yml" ps
+    echo ""
+    log_info "checking API..."
+    local api_response
+    api_response=$(curl -sf --max-time 5 "http://localhost:${RPC_PORT}/status" 2>/dev/null) && {
+        echo "$api_response" | head -c 500
+        echo ""
+    } || log_warn "API not responding on port ${RPC_PORT}"
+}
+
+cmd_logs() {
+    check_installed
+    log_info "showing live logs (Ctrl+C to exit)..."
+    docker compose -f "${DATA_DIR}/docker-compose.yml" logs -f
+}
+
+cmd_stop() {
+    check_installed
+    log_info "stopping containers..."
+    docker compose -f "${DATA_DIR}/docker-compose.yml" stop
+    log_ok "containers stopped"
+}
+
+cmd_start() {
+    check_installed
+    log_info "starting containers..."
+    docker compose -f "${DATA_DIR}/docker-compose.yml" start
+    log_ok "containers started"
+}
+
+cmd_restart() {
+    check_installed
+    log_info "restarting containers..."
+    docker compose -f "${DATA_DIR}/docker-compose.yml" restart
+    log_ok "containers restarted"
+}
+
+cmd_update() {
+    check_installed
+    log_info "pulling latest images..."
+    docker compose -f "${DATA_DIR}/docker-compose.yml" pull
+    log_info "restarting containers..."
+    docker compose -f "${DATA_DIR}/docker-compose.yml" up -d
+    log_ok "update complete"
+}
+
 # --- interactive setup ---
 
 interactive_setup() {
@@ -699,19 +775,33 @@ interactive_setup() {
     echo "  1) docker-standalone   (all-in-one container, recommended)"
     echo "  2) docker-compose      (separate containers)"
     echo "  3) uninstall           (remove bob node)"
+    echo "  ─────────────────────────────────────────────"
+    echo "  4) status              (show container status)"
+    echo "  5) logs                (show live logs)"
+    echo "  6) stop                (stop containers)"
+    echo "  7) start               (start containers)"
+    echo "  8) restart             (restart containers)"
+    echo "  9) update              (pull latest + restart)"
     echo ""
     while true; do
-        read -rp "Enter choice [1/2/3]: " choice
+        read -rp "Enter choice [1-9]: " choice
         case "$choice" in
             1) MODE="docker-standalone"; break ;;
             2) MODE="docker-compose";    break ;;
             3) MODE="uninstall";         break ;;
-            *) echo "  Please enter 1, 2, or 3." ;;
+            4) MODE="status";            break ;;
+            5) MODE="logs";              break ;;
+            6) MODE="stop";              break ;;
+            7) MODE="start";             break ;;
+            8) MODE="restart";           break ;;
+            9) MODE="update";            break ;;
+            *) echo "  Please enter 1-9." ;;
         esac
     done
 
-    # skip seed/alias prompts for uninstall
-    if [ "$MODE" = "uninstall" ]; then
+    # skip seed/alias prompts for uninstall and management commands
+    if [ "$MODE" = "uninstall" ] || [ "$MODE" = "status" ] || [ "$MODE" = "logs" ] || \
+       [ "$MODE" = "stop" ] || [ "$MODE" = "start" ] || [ "$MODE" = "restart" ] || [ "$MODE" = "update" ]; then
         return
     fi
 
@@ -769,6 +859,16 @@ main() {
         exit 0
     fi
 
+    # handle management commands (no seed/system check needed)
+    case "$MODE" in
+        status)  cmd_status;  exit 0 ;;
+        logs)    cmd_logs;    exit 0 ;;
+        stop)    cmd_stop;    exit 0 ;;
+        start)   cmd_start;   exit 0 ;;
+        restart) cmd_restart; exit 0 ;;
+        update)  cmd_update;  exit 0 ;;
+    esac
+
     if [ -n "$FIREWALL_MODE" ] && [ "$FIREWALL_MODE" != "closed" ] && [ "$FIREWALL_MODE" != "open" ]; then
         log_error "unknown firewall mode: ${FIREWALL_MODE} (use: closed | open)"
         exit 1
@@ -797,10 +897,12 @@ main() {
 
     setup_firewall
 
-    # self-cleanup: remove installer script after successful run
-    if [ -f "$SELF" ]; then
+    # copy script to install directory for future management
+    if [ -f "$SELF" ] && [ "$SELF" != "${DATA_DIR}/bob-install.sh" ]; then
+        cp "$SELF" "${DATA_DIR}/bob-install.sh"
+        chmod +x "${DATA_DIR}/bob-install.sh"
+        log_ok "script copied to ${DATA_DIR}/bob-install.sh"
         rm -f "$SELF"
-        log_ok "installer removed (${SELF})"
     fi
 }
 
