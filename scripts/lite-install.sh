@@ -31,6 +31,7 @@
 #   --ticking-delay <n>     tick delay ms, testnet (default: 1000)
 #   --epoch <N>             build for specific epoch (auto-detected if omitted)
 #   --no-epoch              skip automatic epoch data download (mainnet)
+#   --threads <N>           build threads (default: auto/all cores)
 
 set -e
 
@@ -53,6 +54,7 @@ TICKING_DELAY=1000
 SKIP_EPOCH=false
 TARGET_EPOCH=""
 DETECTED_EPOCH=""
+BUILD_THREADS=""
 CLANG_C="clang"
 CLANG_CXX="clang++"
 APT_WAIT="-o DPkg::Lock::Timeout=60"
@@ -257,6 +259,9 @@ install_docker() {
     local avx_include_flag=""
     [ "$ENABLE_AVX512" = true ] && avx_include_flag="-DCMAKE_PROJECT_INCLUDE=/app/avx512vbmi2.cmake"
 
+    # use BUILD_THREADS if set, else nproc
+    local build_jobs="${BUILD_THREADS:-\$(nproc)}"
+
     log_info "creating Dockerfile..."
     cat > "${DATA_DIR}/Dockerfile" <<DOCKEREOF
 FROM ubuntu:24.04 AS builder
@@ -275,7 +280,7 @@ RUN cmake .. \\
     -DBUILD_TESTS=OFF -DBUILD_BINARY=ON \\
     -DCMAKE_BUILD_TYPE=Release -DENABLE_AVX512=${avx_flag} \\
     ${avx_include_flag} \\
-    && cmake --build . -- -j\$(nproc)
+    && cmake --build . -- -j${build_jobs}
 
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y \\
@@ -396,7 +401,8 @@ install_manual() {
         -DCMAKE_BUILD_TYPE=Release \
         -DENABLE_AVX512="${avx_flag}" \
         ${avx_cmake_include}
-    cmake --build . -- -j"$(nproc)"
+    local build_jobs="${BUILD_THREADS:-$(nproc)}"
+    cmake --build . -- -j"${build_jobs}"
     log_ok "build complete"
 
     create_lite_service
@@ -936,6 +942,12 @@ interactive_setup() {
         [ -z "$OPERATOR_ALIAS" ] && echo "  Operator alias is required."
     done
 
+    echo ""
+    read -rp "Build threads (Enter for auto, 0=auto): " input_threads
+    if [ -n "$input_threads" ] && [ "$input_threads" != "0" ]; then
+        BUILD_THREADS="$input_threads"
+    fi
+
     # automatically fetch peers from API
     echo ""
     PEERS=$(fetch_peers_from_api) || true
@@ -980,6 +992,7 @@ parse_args() {
             --ticking-delay) TICKING_DELAY="$2";  shift 2 ;;
             --epoch)         TARGET_EPOCH="$2";   shift 2 ;;
             --no-epoch)      SKIP_EPOCH=true;     shift   ;;
+            --threads)       BUILD_THREADS="$2";  shift 2 ;;
             --help|-h)       print_usage;         exit 0  ;;
             *) log_error "unknown option: $1"; print_usage; exit 1 ;;
         esac
