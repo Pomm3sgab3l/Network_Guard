@@ -817,6 +817,12 @@ interactive_setup() {
     done
 
     read -rp "Peers (ip:port, comma-separated, Enter to skip): " PEERS
+
+    echo ""
+    read -rp "Max threads (Enter for auto, 0=auto): " input_threads
+    if [ -n "$input_threads" ]; then
+        MAX_THREADS="$input_threads"
+    fi
     echo ""
 }
 
