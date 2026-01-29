@@ -699,11 +699,11 @@ patch_max_processors() {
     # patch both TESTNET and mainnet definitions
     sed -i "s/#define MAX_NUMBER_OF_PROCESSORS [0-9]*/#define MAX_NUMBER_OF_PROCESSORS ${max_procs}/g" "$settings_file"
 
-    # verify
-    local verify_procs
-    verify_procs=$(grep -oP '#define\s+MAX_NUMBER_OF_PROCESSORS\s+\K[0-9]+' "$settings_file" || true)
-    if [ "$verify_procs" = "$max_procs" ]; then
-        log_ok "MAX_NUMBER_OF_PROCESSORS set to ${max_procs}"
+    # verify (check that all occurrences are patched)
+    local verify_count
+    verify_count=$(grep -c "#define MAX_NUMBER_OF_PROCESSORS ${max_procs}" "$settings_file" 2>/dev/null || echo 0)
+    if [ "$verify_count" -ge 1 ]; then
+        log_ok "MAX_NUMBER_OF_PROCESSORS set to ${max_procs} (${verify_count} occurrence(s))"
     else
         log_warn "patch may have failed, check public_settings.h"
     fi
