@@ -456,6 +456,14 @@ EOF
     echo "  Update:     ./lite.sh update"
     echo ""
 
+    # Remove original script if not in DATA_DIR
+    local script_path
+    script_path=$(realpath "$0" 2>/dev/null || echo "$0")
+    if [ "$script_path" != "${DATA_DIR}/lite.sh" ] && [ -f "$script_path" ]; then
+        rm -f "$script_path"
+        log_ok "Removed installer from download location"
+    fi
+
     log_info "Entering ${DATA_DIR}..."
     cd "${DATA_DIR}" && exec bash
 }
