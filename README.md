@@ -19,15 +19,40 @@ Blockchain indexer with REST API for the Qubic network.
 
 ## Quick Start
 
-### Option 1: Docker (manual)
+### Option 1: Install Script (recommended)
+
+```bash
+wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
+chmod +x bob.sh && ./bob.sh
+```
+
+The script provides an interactive menu and stores data in `/opt/qubic-bob`.
+
+### Option 2: Docker (manual)
+
+The container requires a `bob.json` config file (environment variables are not supported).
 
 **Install & Start:**
 ```bash
+# Create config
+mkdir -p /opt/qubic-bob
+cat > /opt/qubic-bob/bob.json << 'EOF'
+{
+  "node-seed": "your55characterlowercaseseed",
+  "p2p-node": [],
+  "arbitrator-identity": "AFZPUAIYVPNUYGJRQVLUKOPPVLHAZQTGLYAAUUNBXFTVTAMSBKQBLEIEPCVJ",
+  "keydb-url": "tcp://127.0.0.1:6379",
+  "kvrocks-url": "tcp://127.0.0.1:6666",
+  "tick-storage-mode": "kvrocks",
+  "log-level": "info"
+}
+EOF
+
+# Start container
 docker run -d --name qubic-bob \
-  -e NODE_SEED=your55characterlowercaseseed \
-  -e NODE_ALIAS=mynode \
   -p 21842:21842 -p 40420:40420 \
-  -v qubic-bob-data:/data \
+  -v /opt/qubic-bob/bob.json:/app/bob.json:ro \
+  -v /opt/qubic-bob/data:/data \
   --restart unless-stopped \
   qubiccore/bob
 ```
@@ -45,46 +70,38 @@ docker run -d --name qubic-bob \
 ```bash
 docker pull qubiccore/bob
 docker rm -f qubic-bob
-# Run the install command again
+docker run -d --name qubic-bob \
+  -p 21842:21842 -p 40420:40420 \
+  -v /opt/qubic-bob/bob.json:/app/bob.json:ro \
+  -v /opt/qubic-bob/data:/data \
+  --restart unless-stopped \
+  qubiccore/bob
 ```
 
 **Uninstall:**
 ```bash
-docker rm -f qubic-bob           # Remove container
-docker volume rm qubic-bob-data  # Remove data (optional)
-docker rmi qubiccore/bob         # Remove image (optional)
+docker rm -f qubic-bob      # Remove container
+rm -rf /opt/qubic-bob       # Remove data (optional)
+docker rmi qubiccore/bob    # Remove image (optional)
 ```
 
-**Data location:** Docker volume `qubic-bob-data`
-View path: `docker volume inspect qubic-bob-data`
-
-### Option 2: Install Script (recommended)
-
-```bash
-wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
-chmod +x bob.sh && ./bob.sh
-```
-
-The script provides an interactive menu and stores data in `/opt/qubic-bob`.
+**Data location:** `/opt/qubic-bob/data`
 
 ## Security
 
-Never put your seed directly in a command that gets saved to shell history:
+Your seed is stored in `/opt/qubic-bob/bob.json`. To prevent it from being saved in shell history when using manual setup:
 
 ```bash
-# BAD - seed saved in history
-docker run -e NODE_SEED=mysecret...
+# Add space before command to prevent history save
+ cat > /opt/qubic-bob/bob.json << 'EOF'
+...
+EOF
 
-# GOOD - space before command prevents history save
- docker run -e NODE_SEED=mysecret...
-
-# GOOD - use interactive mode
-./bob.sh install
+# Or use the interactive script
+./bob.sh
 ```
 
 ## Management (Script)
-
-If you used the install script:
 
 ```bash
 cd /opt/qubic-bob
@@ -106,36 +123,27 @@ cd /opt/qubic-bob
 
 ## Cloud Provider Examples
 
+All examples: Install Docker, then run the install script.
+
 ### Hetzner Cloud
 
 ```bash
 # Create server (CPX31 = 8 vCPU, 16GB RAM)
 hcloud server create --name bob-node --type cpx31 --image ubuntu-24.04
 
-# SSH and run
+# SSH and install
 ssh root@<IP>
 curl -fsSL https://get.docker.com | sh
-docker run -d --name qubic-bob \
-  -e NODE_SEED=your55characterlowercaseseed \
-  -e NODE_ALIAS=mynode \
-  -p 21842:21842 -p 40420:40420 \
-  -v qubic-bob-data:/data \
-  --restart unless-stopped \
-  qubiccore/bob
+wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
+chmod +x bob.sh && ./bob.sh
 ```
 
 ### OVH / Bare Metal
 
 ```bash
-# After OS install, SSH and run
 apt update && apt install -y docker.io
-docker run -d --name qubic-bob \
-  -e NODE_SEED=your55characterlowercaseseed \
-  -e NODE_ALIAS=mynode \
-  -p 21842:21842 -p 40420:40420 \
-  -v qubic-bob-data:/data \
-  --restart unless-stopped \
-  qubiccore/bob
+wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
+chmod +x bob.sh && ./bob.sh
 ```
 
 ### AWS EC2
@@ -144,17 +152,11 @@ docker run -d --name qubic-bob \
 # Launch t3.xlarge (4 vCPU, 16GB) with Ubuntu 24.04 AMI
 # Security Group: allow TCP 21842, 40420, 22
 
-# SSH and run
 ssh -i key.pem ubuntu@<IP>
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker ubuntu && newgrp docker
-docker run -d --name qubic-bob \
-  -e NODE_SEED=your55characterlowercaseseed \
-  -e NODE_ALIAS=mynode \
-  -p 21842:21842 -p 40420:40420 \
-  -v qubic-bob-data:/data \
-  --restart unless-stopped \
-  qubiccore/bob
+wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
+chmod +x bob.sh && ./bob.sh
 ```
 
 ### Google Cloud
@@ -166,17 +168,11 @@ gcloud compute instances create bob-node \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud
 
-# SSH and run
 gcloud compute ssh bob-node
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER && newgrp docker
-docker run -d --name qubic-bob \
-  -e NODE_SEED=your55characterlowercaseseed \
-  -e NODE_ALIAS=mynode \
-  -p 21842:21842 -p 40420:40420 \
-  -v qubic-bob-data:/data \
-  --restart unless-stopped \
-  qubiccore/bob
+wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
+chmod +x bob.sh && ./bob.sh
 ```
 
 ### DigitalOcean
@@ -186,13 +182,8 @@ docker run -d --name qubic-bob \
 
 ssh root@<IP>
 curl -fsSL https://get.docker.com | sh
-docker run -d --name qubic-bob \
-  -e NODE_SEED=your55characterlowercaseseed \
-  -e NODE_ALIAS=mynode \
-  -p 21842:21842 -p 40420:40420 \
-  -v qubic-bob-data:/data \
-  --restart unless-stopped \
-  qubiccore/bob
+wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
+chmod +x bob.sh && ./bob.sh
 ```
 
 ## Firewall

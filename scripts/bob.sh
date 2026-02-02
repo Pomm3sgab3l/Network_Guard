@@ -118,9 +118,9 @@ fetch_peers() {
         response=$(curl -s --max-time 15 "$PEERS_API" 2>/dev/null || true)
 
         if [ -n "$response" ]; then
-            # Extract IPs from JSON response
+            # Extract bobPeers IPs from JSON response
             local peers
-            peers=$(echo "$response" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -6 || true)
+            peers=$(echo "$response" | sed 's/.*"bobPeers"://' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
 
             if [ -n "$peers" ]; then
                 # Format as JSON array with BM prefix and passcode
