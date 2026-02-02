@@ -19,25 +19,42 @@ Blockchain indexer with REST API for the Qubic network.
 
 ## Quick Start
 
-**One command:**
+### Option 1: Docker (manual)
 
 ```bash
+# Start
 docker run -d --name qubic-bob \
   -e NODE_SEED=your55characterlowercaseseed \
   -e NODE_ALIAS=mynode \
   -p 21842:21842 -p 40420:40420 \
   -v qubic-bob-data:/data \
+  --restart unless-stopped \
   qubiccore/bob
+
+# View logs
+docker logs -f qubic-bob
+
+# Stop
+docker stop qubic-bob
+
+# Start again
+docker start qubic-bob
+
+# Update
+docker pull qubiccore/bob && docker rm -f qubic-bob
+# Then run the "Start" command again
 ```
 
-That's it. The container handles everything automatically.
+**Data location:** Docker volume `qubic-bob-data` (use `docker volume inspect qubic-bob-data` to see path)
 
-**Or use the install script:**
+### Option 2: Install Script (recommended)
 
 ```bash
 wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
 chmod +x bob.sh && ./bob.sh
 ```
+
+The script provides an interactive menu and stores data in `/opt/qubic-bob`.
 
 ## Security
 
@@ -54,9 +71,12 @@ docker run -e NODE_SEED=mysecret...
 ./bob.sh install
 ```
 
-## Management
+## Management (Script)
+
+If you used the install script:
 
 ```bash
+cd /opt/qubic-bob
 ./bob.sh status     # show status
 ./bob.sh logs       # view logs
 ./bob.sh stop       # stop node
@@ -64,15 +84,6 @@ docker run -e NODE_SEED=mysecret...
 ./bob.sh restart    # restart node
 ./bob.sh update     # update to latest
 ./bob.sh uninstall  # remove node
-```
-
-Or with plain Docker:
-
-```bash
-docker logs -f qubic-bob        # view logs
-docker stop qubic-bob           # stop
-docker start qubic-bob          # start
-docker pull qubiccore/bob       # update image
 ```
 
 ## Ports
