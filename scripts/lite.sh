@@ -640,16 +640,20 @@ interactive_install() {
 print_logo() {
     echo -e "${CYAN}"
     cat << 'EOF'
-            ██████  ██    ██ ██████  ██  ██████
-            ██    ██ ██    ██ ██   ██ ██ ██
-            ██    ██ ██    ██ ██████  ██ ██
-            ██ ▄▄ ██ ██    ██ ██   ██ ██ ██
-             ██████   ██████  ██████  ██  ██████
-                ▀▀
+        ██████  ██████
+        ██████  ██████
+        ██████  ██████
+        ██████  ██████
+        ██████  ██████
+        ██████  ██████
+        ██████  ██████
+          ██████
+          ██████
 EOF
     echo -e "${NC}"
-    echo -e "       ${GREEN}Qubic Lite Node Installer${NC}"
-    echo -e "       ${BLUE}─────────────────────────${NC}"
+    echo ""
+    echo -e "    ${GREEN}Qubic Lite Node Installer${NC}"
+    echo "    ─────────────────────────"
     echo ""
 }
 
@@ -657,15 +661,15 @@ interactive_menu() {
     echo ""
     print_logo
 
-    echo "┌─────────────────────────────────────────┐"
-    echo -e "│ ${GREEN}INSTALL${NC}                                 │"
-    echo "│   1) docker        install via docker   │"
-    echo "│   2) uninstall     remove lite node     │"
-    echo "│                                         │"
-    echo -e "│ ${GREEN}MANAGE${NC}                                  │"
-    echo "│   3) status    4) logs      5) stop     │"
-    echo "│   6) start     7) restart   8) update   │"
-    echo "└─────────────────────────────────────────┘"
+    echo "┌────────────────────────────────────────┐"
+    echo -e "│ ${GREEN}INSTALL${NC}                                │"
+    echo "│   1) docker        install via docker  │"
+    echo "│   2) uninstall     remove lite node    │"
+    echo "├────────────────────────────────────────┤"
+    echo -e "│ ${GREEN}MANAGE${NC}                                 │"
+    echo "│   3) status    4) logs     5) stop     │"
+    echo "│   6) start     7) restart  8) update   │"
+    echo "└────────────────────────────────────────┘"
     echo ""
     read -rp "Select [1-8]: " choice
 
