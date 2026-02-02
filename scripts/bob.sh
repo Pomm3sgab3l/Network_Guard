@@ -473,8 +473,8 @@ print_logo() {
 EOF
     echo -e "${NC}"
     echo ""
-    echo -e "      ${GREEN}Qubic Bob Node Installer${NC}"
-    echo -e "      ${CYAN}────────────────────────${NC}"
+    echo -e "          ${GREEN}Qubic Bob Node Installer${NC}"
+    echo -e "          ${CYAN}────────────────────────${NC}"
     echo ""
 }
 
