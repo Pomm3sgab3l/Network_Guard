@@ -24,6 +24,7 @@ set -e
 DOCKER_IMAGE="qubiccore/bob"
 CONTAINER_NAME="qubic-bob"
 DATA_DIR="/opt/qubic-bob"
+PEERS_API="https://api.qubic.global/random-peers?service=bobNode&litePeers=6"
 
 # Default ports
 P2P_PORT=21842
@@ -101,13 +102,66 @@ container_running() {
     docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
 }
 
+# Fetch peers from qubic.global with retry logic
+fetch_peers() {
+    local max_retries=5
+    local retry_delay=10
+    local attempt=1
+
+    PEER_LIST=""
+
+    while [ $attempt -le $max_retries ]; do
+        log_info "Fetching peers from qubic.global (attempt ${attempt}/${max_retries})..."
+
+        # Try to fetch peers
+        local response
+        response=$(curl -s --max-time 15 "$PEERS_API" 2>/dev/null)
+
+        if [ -n "$response" ]; then
+            # Extract IPs from JSON response
+            local peers
+            peers=$(echo "$response" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -6)
+
+            if [ -n "$peers" ]; then
+                # Format as JSON array with port
+                PEER_LIST=""
+                while IFS= read -r ip; do
+                    [ -n "$PEER_LIST" ] && PEER_LIST="${PEER_LIST},"
+                    PEER_LIST="${PEER_LIST}\"${ip}:21841\""
+                done <<< "$peers"
+
+                local peer_count
+                peer_count=$(echo "$peers" | wc -l)
+                log_ok "Got ${peer_count} peers"
+                return 0
+            fi
+        fi
+
+        if [ $attempt -lt $max_retries ]; then
+            log_warn "Failed to fetch peers, retrying in ${retry_delay}s..."
+            sleep $retry_delay
+        fi
+
+        attempt=$((attempt + 1))
+    done
+
+    log_warn "Could not fetch peers - node will try to discover them automatically"
+    return 1
+}
+
 generate_config() {
     local config_file="${DATA_DIR}/bob.json"
     log_info "Generating config..."
 
+    # Use fetched peers or empty array
+    local peer_json="[]"
+    if [ -n "$PEER_LIST" ]; then
+        peer_json="[${PEER_LIST}]"
+    fi
+
     cat > "$config_file" <<EOF
 {
-  "p2p-node": [],
+  "p2p-node": ${peer_json},
   "request-cycle-ms": 100,
   "request-logging-cycle-ms": 30,
   "future-offset": 3,
@@ -128,6 +182,24 @@ generate_config() {
 }
 EOF
     log_ok "Config: ${config_file}"
+}
+
+# Update peers in existing config file
+update_peers_in_config() {
+    local config_file="${DATA_DIR}/bob.json"
+
+    if [ -z "$PEER_LIST" ]; then
+        return
+    fi
+
+    if [ ! -f "$config_file" ]; then
+        return
+    fi
+
+    # Update p2p-node in config using sed
+    local peer_json="[${PEER_LIST}]"
+    sed -i "s|\"p2p-node\": \[.*\]|\"p2p-node\": ${peer_json}|" "$config_file"
+    log_ok "Updated peers in config"
 }
 
 do_install() {
@@ -164,7 +236,10 @@ do_install() {
     cp "$0" "$SCRIPT_PATH" 2>/dev/null || true
     chmod +x "$SCRIPT_PATH" 2>/dev/null || true
 
-    # Generate config file with seed and alias
+    # Fetch peers from qubic.global (with retry)
+    fetch_peers
+
+    # Generate config file with seed, alias, and peers
     generate_config
 
     # Start container
@@ -261,6 +336,10 @@ do_start() {
         exit 1
     fi
 
+    # Fetch fresh peers and update config
+    fetch_peers
+    update_peers_in_config
+
     # Remove old container if exists
     docker rm -f "$CONTAINER_NAME" &>/dev/null || true
 
@@ -283,6 +362,10 @@ do_restart() {
         log_error "Container not found. Run: $0 install"
         exit 1
     fi
+
+    # Fetch fresh peers and update config
+    fetch_peers
+    update_peers_in_config
 
     log_info "Restarting..."
     docker rm -f "$CONTAINER_NAME" &>/dev/null || true
@@ -317,7 +400,11 @@ do_update() {
     log_info "Pulling latest image..."
     docker pull "$DOCKER_IMAGE":latest
 
-    # Recreate container (config is already in bob.json)
+    # Fetch fresh peers and update config
+    fetch_peers
+    update_peers_in_config
+
+    # Recreate container
     docker rm -f "$CONTAINER_NAME"
 
     docker run -d \
