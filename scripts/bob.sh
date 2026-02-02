@@ -260,9 +260,12 @@ do_install() {
     echo "  P2P:        port ${P2P_PORT}"
     echo "  API:        http://localhost:${API_PORT}"
     echo ""
-    echo "  View logs:  ${SCRIPT_PATH} logs"
-    echo "  Status:     ${SCRIPT_PATH} status"
-    echo "  Update:     ${SCRIPT_PATH} update"
+    echo "  View logs:  ./bob.sh logs"
+    echo "  Status:     ./bob.sh status"
+    echo "  Update:     ./bob.sh update"
+    echo ""
+    echo "To enter the bob directory, run:"
+    echo "  cd ${DATA_DIR}"
 }
 
 do_uninstall() {
