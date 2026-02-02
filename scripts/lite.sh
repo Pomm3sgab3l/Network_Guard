@@ -1,275 +1,393 @@
 #!/bin/bash
-# lite.sh - Qubic Lite Node installer & manager
+#
+# Lite Node Installer - Docker-based setup
+# https://github.com/hackerby888/qubic-core-lite
 #
 # Usage:
 #   Interactive:  ./lite.sh
-#   CLI:          ./lite.sh <mode> [options]
+#   CLI:          ./lite.sh install --seed <seed> --alias <alias>
 #
-# Install modes:
-#   docker     build + run via docker
-#   manual     build from source + systemd
-#   uninstall  remove lite node completely
+# Commands:
+#   install       Install and start Lite node
+#   uninstall     Remove Lite node
+#   status        Show container status
+#   logs          Show live logs
+#   stop          Stop container
+#   start         Start container
+#   restart       Restart container
+#   update        Rebuild and restart
 #
-# Management modes:
-#   status     show container/service status
-#   logs       show live logs (Ctrl+C to exit)
-#   stop       stop container/service
-#   start      start container/service
-#   restart    restart container/service
-#   update     rebuild + restart (docker only)
-#
-# Options:
-#   --peers <ip1,ip2,...>   peer IPs
-#   --testnet               testnet mode (default: mainnet)
-#   --port <port>           P2P port (default: 21841)
-#   --http-port <port>      HTTP/RPC port (default: 41841)
-#   --data-dir <path>       install dir (default: /opt/qubic-lite)
-#   --avx512                enable AVX-512
-#   --operator-seed <seed>  operator identity seed (required for install)
-#   --operator-alias <alias> operator alias name (required for install)
-#   --security-tick <n>     quorum bypass interval, testnet (default: 32)
-#   --ticking-delay <n>     tick delay ms, testnet (default: 1000)
-#   --epoch <N>             build for specific epoch (auto-detected if omitted)
-#   --no-epoch              skip automatic epoch data download (mainnet)
-#   --threads <N>           build threads (default: auto/all cores)
-#   --processors <N>        max runtime processors (default: 8, patched in source)
 
 set -e
 
-# resolve own path before any cd changes the working directory
-SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-
-# defaults
-MODE=""
-PEERS=""
-TESTNET=false
-NODE_PORT=21841
-HTTP_PORT=41841
+# --- Config ---
+CONTAINER_NAME="qubic-lite"
+IMAGE_NAME="qubic-lite-node"
 DATA_DIR="/opt/qubic-lite"
 REPO_URL="https://github.com/hackerby888/qubic-core-lite.git"
+PEERS_API="https://api.qubic.global/random-peers?service=bobNode&litePeers=8"
+
+# Default ports
+P2P_PORT=21841
+HTTP_PORT=41841
+
+# Build options
+TESTNET=false
 ENABLE_AVX512=false
-OPERATOR_SEED=""
-OPERATOR_ALIAS=""
-SECURITY_TICK=32
-TICKING_DELAY=1000
-SKIP_EPOCH=false
-TARGET_EPOCH=""
-DETECTED_EPOCH=""
-BUILD_THREADS=""
 MAX_PROCESSORS=""
-CLANG_C="clang"
-CLANG_CXX="clang++"
-APT_WAIT="-o DPkg::Lock::Timeout=60"
+TARGET_EPOCH=""
+SKIP_EPOCH=false
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
+# --- Colors ---
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-log_info()  { echo -e "${CYAN}[*]${NC} $1"; }
+log_info()  { echo -e "${BLUE}[*]${NC} $1"; }
 log_ok()    { echo -e "${GREEN}[+]${NC} $1"; }
 log_warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
 log_error() { echo -e "${RED}[-]${NC} $1"; }
 
-# --- fetch peers from API ---
-
-fetch_peers_from_api() {
-    local api_url="https://api.qubic.global/random-peers?service=bobNode&litePeers=8"
-    local manual_url="https://app.qubic.li/network/live"
-
-    # all log output to stderr so stdout only contains the peer list
-    log_info "fetching peers from API..." >&2
-
-    local response
-    response=$(curl -sf --connect-timeout 10 --max-time 30 "${api_url}" 2>/dev/null || true)
-
-    if [ -z "$response" ]; then
-        log_warn "API not reachable: ${api_url}" >&2
-        log_warn "please find peers manually at: ${manual_url}" >&2
-        log_warn "look for active nodes and copy their IPs" >&2
-        return 1
-    fi
-
-    # extract litePeers array for lite nodes - format: ["ip1","ip2",...]
-    local peers_json
-    peers_json=$(echo "$response" | grep -oP '"litePeers"\s*:\s*\[[^\]]*\]' | grep -oP '\[[^\]]*\]' || true)
-
-    if [ -z "$peers_json" ] || [ "$peers_json" = "[]" ]; then
-        log_warn "no litePeers found in API response" >&2
-        log_warn "please find peers manually at: ${manual_url}" >&2
-        return 1
-    fi
-
-    # convert JSON array to comma-separated IPs: ["1.2.3.4","5.6.7.8"] -> 1.2.3.4,5.6.7.8
-    local peers_csv
-    peers_csv=$(echo "$peers_json" | tr -d '[]"' | tr ',' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -8 | tr '\n' ',' | sed 's/,$//')
-
-    if [ -z "$peers_csv" ]; then
-        log_warn "could not parse peers from API" >&2
-        log_warn "please find peers manually at: ${manual_url}" >&2
-        return 1
-    fi
-
-    local peer_count
-    peer_count=$(echo "$peers_csv" | tr ',' '\n' | wc -l)
-    log_ok "found ${peer_count} peers from API" >&2
-
-    # only output the peer list to stdout
-    echo "$peers_csv"
-    return 0
-}
+# --- Functions ---
 
 print_usage() {
+    echo "Lite Node Installer"
+    echo ""
     echo "Usage:"
     echo "  Interactive:  $0"
-    echo "  CLI:          $0 <mode> [options]"
+    echo "  CLI:          $0 <command> [options]"
     echo ""
-    echo "Modes (install):"
-    echo "  docker     build + run via docker (recommended)"
-    echo "  manual     build from source + systemd"
-    echo "  uninstall  remove lite node completely"
+    echo "Commands:"
+    echo "  install       Install and start Lite node"
+    echo "  uninstall     Remove Lite node and data"
+    echo "  status        Show container status"
+    echo "  logs          Show live logs (Ctrl+C to exit)"
+    echo "  stop          Stop container"
+    echo "  start         Start container"
+    echo "  restart       Restart container"
+    echo "  update        Rebuild image and restart"
     echo ""
-    echo "Modes (manage):"
-    echo "  status     show container/service status"
-    echo "  logs       show live logs (Ctrl+C to exit)"
-    echo "  stop       stop container/service"
-    echo "  start      start container/service"
-    echo "  restart    restart container/service"
-    echo "  update     rebuild + restart (docker only)"
+    echo "Install options:"
+    echo "  --seed <seed>         Operator seed [REQUIRED]"
+    echo "  --alias <alias>       Operator alias [REQUIRED]"
+    echo "  --testnet             Testnet mode (default: mainnet)"
+    echo "  --avx512              Enable AVX-512 support"
+    echo "  --processors <N>      Max processors (default: 8)"
+    echo "  --epoch <N>           Build for specific epoch"
+    echo "  --no-epoch            Skip epoch data download"
+    echo "  --peers <ip1,ip2>     Peer IPs (auto-fetched if omitted)"
+    echo "  --p2p-port <port>     P2P port (default: 21841)"
+    echo "  --http-port <port>    HTTP port (default: 41841)"
+    echo "  --data-dir <path>     Data directory (default: /opt/qubic-lite)"
     echo ""
-    echo "Options:"
-    echo "  --operator-seed <seed>  operator identity seed (REQUIRED for install)"
-    echo "  --operator-alias <alias> operator alias name (REQUIRED for install)"
-    echo "  --peers <ip1,ip2,...>   peer IPs"
-    echo "  --testnet               testnet mode (default: mainnet)"
-    echo "  --port <port>           P2P port (default: 21841)"
-    echo "  --http-port <port>      HTTP/RPC port (default: 41841)"
-    echo "  --data-dir <path>       install dir (default: /opt/qubic-lite)"
-    echo "  --avx512                enable AVX-512"
-    echo "  --security-tick <n>     quorum bypass, testnet only (default: 32)"
-    echo "  --ticking-delay <n>     tick delay ms, testnet only (default: 1000)"
-    echo "  --epoch <N>             build for specific epoch (auto-detected if omitted)"
-    echo "  --no-epoch              skip automatic epoch data download (mainnet)"
+    echo "Examples:"
+    echo "  $0 install --seed myseed --alias mynode"
+    echo "  $0 install --seed myseed --alias mynode --testnet"
+    echo "  $0 logs"
+    echo "  $0 update"
 }
 
-check_root() {
-    if [ "$EUID" -ne 0 ]; then
-        log_error "run as root"
+print_security_warning() {
+    echo ""
+    log_warn "SECURITY TIP: To prevent your seed from being saved in shell history:"
+    echo "      - Add a SPACE before the command:  ' ./lite.sh install ...'"
+    echo "      - Or use interactive mode:  ./lite.sh"
+    echo "      - Or set: export HISTCONTROL=ignorespace"
+    echo ""
+}
+
+check_docker() {
+    if ! command -v docker &> /dev/null; then
+        log_error "Docker not found. Please install Docker first:"
+        echo ""
+        echo "  curl -fsSL https://get.docker.com | sh"
+        echo ""
         exit 1
     fi
+    log_ok "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')"
 }
 
 check_system() {
-    log_info "checking system..."
+    log_info "Checking system..."
 
-    if [ ! -f /etc/os-release ]; then
-        log_error "needs Ubuntu/Debian"
-        exit 1
-    fi
-
-    local ram_kb ram_gb cores avail_gb min_ram
+    local ram_kb ram_gb min_ram
     ram_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
     ram_gb=$((ram_kb / 1024 / 1024))
-    cores=$(nproc)
-    avail_gb=$(df -BG / | tail -1 | awk '{print $4}' | tr -d 'G')
 
     [ "$TESTNET" = true ] && min_ram=14 || min_ram=60
 
-    [ "$ram_gb" -lt "$min_ram" ] && log_warn "RAM: ${ram_gb}GB (need $((min_ram + 2))GB)" || log_ok "RAM: ${ram_gb}GB"
-    log_ok "CPU: ${cores} cores"
-    grep -q avx2 /proc/cpuinfo && log_ok "AVX2: yes" || log_warn "AVX2: not detected (required for mainnet)"
+    if [ "$ram_gb" -lt "$min_ram" ]; then
+        log_warn "RAM: ${ram_gb}GB (recommended: ${min_ram}GB+)"
+    else
+        log_ok "RAM: ${ram_gb}GB"
+    fi
+
+    if grep -q avx2 /proc/cpuinfo; then
+        log_ok "AVX2: supported"
+    else
+        log_warn "AVX2: not detected (required for mainnet)"
+    fi
 
     if [ "$ENABLE_AVX512" = true ]; then
-        grep -q avx512 /proc/cpuinfo && log_ok "AVX-512: yes" || log_warn "AVX-512: not detected but requested"
+        if grep -q avx512 /proc/cpuinfo; then
+            log_ok "AVX-512: supported"
+        else
+            log_warn "AVX-512: not detected but requested"
+        fi
+    fi
+}
+
+container_exists() {
+    docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
+}
+
+container_running() {
+    docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
+}
+
+# Fetch peers from API
+fetch_peers() {
+    local max_retries=3
+    local attempt=1
+
+    PEER_LIST=""
+
+    while [ $attempt -le $max_retries ]; do
+        log_info "Fetching peers (attempt ${attempt}/${max_retries})..."
+
+        local response
+        response=$(curl -sf --max-time 15 "$PEERS_API" 2>/dev/null || true)
+
+        if [ -n "$response" ]; then
+            # Extract litePeers from JSON
+            local peers
+            peers=$(echo "$response" | grep -oP '"litePeers"\s*:\s*\[[^\]]*\]' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
+
+            if [ -n "$peers" ]; then
+                PEER_LIST=$(echo "$peers" | head -8 | tr '\n' ',' | sed 's/,$//')
+                local peer_count
+                peer_count=$(echo "$peers" | wc -l)
+                log_ok "Got ${peer_count} peers"
+                return 0
+            fi
+        fi
+
+        attempt=$((attempt + 1))
+        [ $attempt -le $max_retries ] && sleep 5
+    done
+
+    log_warn "Could not fetch peers automatically"
+    return 1
+}
+
+# Detect latest epoch from storage
+detect_epoch() {
+    if [ "$TESTNET" = true ] || [ "$SKIP_EPOCH" = true ]; then
+        return
     fi
 
-    if [ "$TESTNET" = false ] && [ "$avail_gb" -lt 500 ]; then
-        log_warn "Disk: ${avail_gb}GB (need 500GB for mainnet)"
+    if [ -n "$TARGET_EPOCH" ]; then
+        DETECTED_EPOCH="$TARGET_EPOCH"
+        return
+    fi
+
+    log_info "Detecting latest epoch..."
+    local storage_url="https://storage.qubic.li/network"
+    DETECTED_EPOCH=$(curl -sf "${storage_url}/" | grep -o 'ep[0-9]*-full\.zip' | grep -o '[0-9]*' | sort -n | tail -1 || true)
+
+    if [ -n "$DETECTED_EPOCH" ]; then
+        log_ok "Detected epoch: ${DETECTED_EPOCH}"
     else
-        log_ok "Disk: ${avail_gb}GB"
+        log_warn "Could not detect epoch, using HEAD"
     fi
 }
 
-# --- build node args ---
+# Checkout source for specific epoch
+checkout_epoch() {
+    local src_dir="$1"
+    local epoch="$2"
 
-build_node_args() {
-    local args=""
-    args="--operator-seed ${OPERATOR_SEED} --operator-alias ${OPERATOR_ALIAS}"
-    [ "$TESTNET" = true ] && args="${args} --security-tick ${SECURITY_TICK} --ticking-delay ${TICKING_DELAY}"
-    [ -n "$PEERS" ] && args="${args} --peers ${PEERS}"
-    echo "$args"
+    if [ -z "$epoch" ]; then
+        log_info "Building from latest source (HEAD)"
+        return
+    fi
+
+    local settings_file="${src_dir}/src/public_settings.h"
+    local head_epoch
+    head_epoch=$(grep -oP '#define\s+EPOCH\s+\K[0-9]+' "$settings_file" 2>/dev/null || true)
+
+    if [ "$head_epoch" = "$epoch" ]; then
+        log_ok "Source already at epoch ${epoch}"
+        return
+    fi
+
+    log_info "Searching for epoch ${epoch} in git history..."
+
+    local commits target_commit=""
+    commits=$(cd "$src_dir" && git log --all --format="%H" -100 -- src/public_settings.h 2>/dev/null || true)
+
+    for c in $commits; do
+        local ep
+        ep=$(cd "$src_dir" && git show "${c}:src/public_settings.h" 2>/dev/null | grep -oP '#define\s+EPOCH\s+\K[0-9]+' || true)
+        if [ "$ep" = "$epoch" ]; then
+            target_commit="$c"
+            break
+        fi
+    done
+
+    if [ -z "$target_commit" ]; then
+        log_warn "Could not find epoch ${epoch}, using HEAD"
+        return
+    fi
+
+    log_info "Checking out ${target_commit:0:8} for epoch ${epoch}..."
+    cd "$src_dir" && git checkout "$target_commit" --quiet
+    log_ok "Checked out epoch ${epoch}"
 }
 
-# build docker-compose command as YAML list (safer than string)
+# Patch max processors in source
+patch_processors() {
+    local src_dir="$1"
+    local max_procs="$2"
+
+    if [ -z "$max_procs" ]; then
+        return
+    fi
+
+    local settings_file="${src_dir}/src/public_settings.h"
+    if [ -f "$settings_file" ]; then
+        sed -i "s/#define MAX_NUMBER_OF_PROCESSORS [0-9]*/#define MAX_NUMBER_OF_PROCESSORS ${max_procs}/g" "$settings_file"
+        log_ok "Patched MAX_PROCESSORS to ${max_procs}"
+    fi
+}
+
+# Download epoch data
+download_epoch_data() {
+    if [ "$TESTNET" = true ] || [ "$SKIP_EPOCH" = true ]; then
+        return
+    fi
+
+    if [ -z "$DETECTED_EPOCH" ]; then
+        return
+    fi
+
+    # Ensure unzip is available
+    if ! command -v unzip &> /dev/null; then
+        apt-get update -qq && apt-get install -y -qq unzip
+    fi
+
+    local zip_file="ep${DETECTED_EPOCH}-full.zip"
+    local zip_url="https://storage.qubic.li/network/${DETECTED_EPOCH}/${zip_file}"
+
+    log_info "Downloading epoch ${DETECTED_EPOCH} data..."
+
+    if wget -q --show-progress -O "${DATA_DIR}/data/${zip_file}" "${zip_url}"; then
+        log_info "Extracting..."
+        unzip -o -q "${DATA_DIR}/data/${zip_file}" -d "${DATA_DIR}/data"
+        rm -f "${DATA_DIR}/data/${zip_file}"
+        log_ok "Epoch data ready"
+    else
+        log_warn "Could not download epoch data"
+        rm -f "${DATA_DIR}/data/${zip_file}"
+    fi
+}
+
+# Build docker command for compose
 build_docker_command() {
     local cmd="command: [\"--operator-seed\", \"${OPERATOR_SEED}\", \"--operator-alias\", \"${OPERATOR_ALIAS}\""
+
     if [ "$TESTNET" = true ]; then
-        cmd="${cmd}, \"--security-tick\", \"${SECURITY_TICK}\", \"--ticking-delay\", \"${TICKING_DELAY}\""
+        cmd="${cmd}, \"--security-tick\", \"32\", \"--ticking-delay\", \"1000\""
     fi
-    if [ -n "$PEERS" ]; then
-        cmd="${cmd}, \"--peers\", \"${PEERS}\""
+
+    if [ -n "$PEER_LIST" ]; then
+        cmd="${cmd}, \"--peers\", \"${PEER_LIST}\""
     fi
+
     cmd="${cmd}]"
     echo "$cmd"
 }
 
-# --- docker install ---
+do_install() {
+    log_info "Installing Lite node..."
 
-install_docker() {
-    log_info "setting up lite node (docker)..."
+    check_docker
+    check_system
 
-    install_docker_engine
-    mkdir -p "${DATA_DIR}" && cd "${DATA_DIR}"
+    # Validate inputs
+    if [ -z "$OPERATOR_SEED" ]; then
+        log_error "--seed is required"
+        exit 1
+    fi
 
-    # clone source locally so we can checkout the right epoch
-    log_info "cloning qubic-core-lite..."
+    if [ -z "$OPERATOR_ALIAS" ]; then
+        log_error "--alias is required"
+        exit 1
+    fi
+
+    # Stop existing container
+    if container_exists; then
+        log_info "Removing existing container..."
+        docker rm -f "$CONTAINER_NAME" &>/dev/null || true
+    fi
+
+    # Create directories
+    mkdir -p "${DATA_DIR}/data"
+
+    # Copy script for management
+    cp "$0" "${DATA_DIR}/lite.sh" 2>/dev/null || true
+    chmod +x "${DATA_DIR}/lite.sh" 2>/dev/null || true
+
+    # Fetch peers
+    if [ -z "$PEER_LIST" ]; then
+        fetch_peers || true
+        if [ -z "$PEER_LIST" ]; then
+            log_error "No peers available. Use --peers <ip1,ip2,...>"
+            log_error "Find peers at: https://app.qubic.li/network/live"
+            exit 1
+        fi
+    fi
+
+    # Detect and download epoch
+    detect_epoch
+    download_epoch_data
+
+    # Clone source
+    log_info "Cloning qubic-core-lite..."
     if [ -d "${DATA_DIR}/qubic-core-lite" ]; then
-        log_info "source exists, updating..."
         cd "${DATA_DIR}/qubic-core-lite"
         git checkout main --quiet 2>/dev/null || true
-        git pull
+        git pull --quiet
     else
-        git clone "${REPO_URL}" "${DATA_DIR}/qubic-core-lite"
-    fi
-    cd "${DATA_DIR}"
-
-    # determine target epoch: --epoch flag > auto-detect from storage > HEAD
-    local epoch="${TARGET_EPOCH}"
-    if [ -z "$epoch" ] && [ "$TESTNET" = false ] && [ "$SKIP_EPOCH" = false ]; then
-        log_info "no --epoch given, detecting from storage.qubic.li..."
-        local storage_url="https://storage.qubic.li/network"
-        epoch=$(curl -sf "${storage_url}/" | grep -o 'ep[0-9]*-full\.zip' | grep -o '[0-9]*' | sort -n | tail -1 || true)
-        [ -n "$epoch" ] && log_info "detected epoch ${epoch} from storage" || log_warn "auto-detect failed, using HEAD"
+        git clone --quiet "${REPO_URL}" "${DATA_DIR}/qubic-core-lite"
     fi
 
-    # checkout matching source version for the target epoch
-    checkout_epoch "${DATA_DIR}/qubic-core-lite" "$epoch"
+    # Checkout correct epoch
+    checkout_epoch "${DATA_DIR}/qubic-core-lite" "$DETECTED_EPOCH"
 
-    # patch max processors if specified
-    patch_max_processors "${DATA_DIR}/qubic-core-lite" "$MAX_PROCESSORS"
+    # Patch processors if specified
+    patch_processors "${DATA_DIR}/qubic-core-lite" "$MAX_PROCESSORS"
 
-    cd "${DATA_DIR}"
-
-    # download epoch data
-    mkdir -p "${DATA_DIR}/data"
-    download_epoch_data "${DATA_DIR}/data" "$epoch"
+    # Build Docker image
+    log_info "Building Docker image (this takes a while)..."
 
     local avx_flag="OFF"
-    local avx_docker_cmake_lines=""
+    local avx_cmake=""
     if [ "$ENABLE_AVX512" = true ]; then
         avx_flag="ON"
-        # Inject -mavx512vbmi2 via CMAKE_PROJECT_INCLUDE (see manual build comment)
-        avx_docker_cmake_lines='RUN echo "add_compile_options(-mavx512vbmi2)" > /app/avx512vbmi2.cmake'
+        avx_cmake='RUN echo "add_compile_options(-mavx512vbmi2)" > /app/avx512.cmake'
     fi
 
-    # exclude large dirs from Docker build context
+    local avx_include=""
+    [ "$ENABLE_AVX512" = true ] && avx_include="-DCMAKE_PROJECT_INCLUDE=/app/avx512.cmake"
+
+    # Create .dockerignore
     printf "data/\nqubic-core-lite/.git/\n" > "${DATA_DIR}/.dockerignore"
 
-    local avx_include_flag=""
-    [ "$ENABLE_AVX512" = true ] && avx_include_flag="-DCMAKE_PROJECT_INCLUDE=/app/avx512vbmi2.cmake"
-
-    # use BUILD_THREADS if set, else nproc
-    local build_jobs="${BUILD_THREADS:-\$(nproc)}"
-
-    log_info "creating Dockerfile..."
-    cat > "${DATA_DIR}/Dockerfile" <<DOCKEREOF
+    # Create Dockerfile
+    cat > "${DATA_DIR}/Dockerfile" <<EOF
 FROM ubuntu:24.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \\
@@ -279,14 +397,14 @@ RUN apt-get update && apt-get install -y \\
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY qubic-core-lite/ .
-${avx_docker_cmake_lines}
+${avx_cmake}
 WORKDIR /app/build
 RUN cmake .. \\
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \\
     -DBUILD_TESTS=OFF -DBUILD_BINARY=ON \\
     -DCMAKE_BUILD_TYPE=Release -DENABLE_AVX512=${avx_flag} \\
-    ${avx_include_flag} \\
-    && cmake --build . -- -j${build_jobs}
+    ${avx_include} \\
+    && cmake --build . -- -j\$(nproc)
 
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y \\
@@ -294,811 +412,293 @@ RUN apt-get update && apt-get install -y \\
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /qubic
 COPY --from=builder /app/build/src/Qubic .
-EXPOSE ${NODE_PORT} ${HTTP_PORT}
+EXPOSE ${P2P_PORT} ${HTTP_PORT}
 ENTRYPOINT ["/qubic/Qubic"]
-DOCKEREOF
+EOF
 
-    log_info "building docker image (this takes a while)..."
-    docker build -t qubic-lite-node "${DATA_DIR}"
+    docker build -t "$IMAGE_NAME" "${DATA_DIR}"
 
+    # Create docker-compose.yml
     local docker_cmd
     docker_cmd=$(build_docker_command)
 
-    cat > "${DATA_DIR}/docker-compose.yml" <<COMPOSEEOF
+    cat > "${DATA_DIR}/docker-compose.yml" <<EOF
 services:
   qubic-lite:
-    image: qubic-lite-node
-    container_name: qubic-lite
+    image: ${IMAGE_NAME}
+    container_name: ${CONTAINER_NAME}
     restart: unless-stopped
     working_dir: /qubic/data
     ports:
-      - "${NODE_PORT}:${NODE_PORT}"
+      - "${P2P_PORT}:${P2P_PORT}"
       - "${HTTP_PORT}:${HTTP_PORT}"
     volumes:
       - ${DATA_DIR}/data:/qubic/data
     ${docker_cmd}
-COMPOSEEOF
-
-    log_info "starting container..."
-    docker compose up -d
-
-    log_ok "done!"
-    print_status_docker
-}
-
-# --- manual install (source) ---
-
-install_manual() {
-    log_info "building lite node from source..."
-
-    log_info "installing deps..."
-    apt-get update -qq
-    NEEDRESTART_MODE=a apt-get install -y -qq build-essential clang cmake nasm git g++ \
-        libc++-dev libc++abi-dev libjsoncpp-dev uuid-dev zlib1g-dev \
-        libstdc++-12-dev libfmt-dev \
-        wget curl tmux
-
-    ensure_build_tools
-
-    log_info "cloning qubic-core-lite..."
-    mkdir -p "${DATA_DIR}"
-
-    if [ -d "${DATA_DIR}/qubic-core-lite" ]; then
-        log_info "source exists, updating..."
-        cd "${DATA_DIR}/qubic-core-lite"
-        git checkout main --quiet 2>/dev/null || true
-        git pull
-    else
-        git clone "${REPO_URL}" "${DATA_DIR}/qubic-core-lite"
-    fi
-
-    cd "${DATA_DIR}/qubic-core-lite"
-
-    # determine target epoch: --epoch flag > auto-detect from storage > HEAD
-    local epoch="${TARGET_EPOCH}"
-    if [ -z "$epoch" ] && [ "$TESTNET" = false ] && [ "$SKIP_EPOCH" = false ]; then
-        log_info "no --epoch given, detecting from storage.qubic.li..."
-        local storage_url="https://storage.qubic.li/network"
-        epoch=$(curl -sf "${storage_url}/" | grep -o 'ep[0-9]*-full\.zip' | grep -o '[0-9]*' | sort -n | tail -1 || true)
-        [ -n "$epoch" ] && log_info "detected epoch ${epoch} from storage" || log_warn "auto-detect failed, using HEAD"
-    fi
-
-    # checkout matching source version for the target epoch
-    checkout_epoch "${DATA_DIR}/qubic-core-lite" "$epoch"
-
-    # patch max processors if specified
-    patch_max_processors "${DATA_DIR}/qubic-core-lite" "$MAX_PROCESSORS"
-
-    # download epoch data
-    mkdir -p "${DATA_DIR}/data"
-    download_epoch_data "${DATA_DIR}/data" "$epoch"
-
-    local avx_flag="OFF"
-    local avx_cmake_include=""
-    if [ "$ENABLE_AVX512" = true ]; then
-        avx_flag="ON"
-        # The project CMakeLists.txt clears CMAKE_CXX_FLAGS, so passing them
-        # on the command line has no effect.  Instead we inject the missing
-        # -mavx512vbmi2 flag via CMAKE_PROJECT_INCLUDE which calls
-        # add_compile_options() right after the project() call -- before any
-        # targets are defined and immune to later flag resets.
-        local vbmi2_cmake="${DATA_DIR}/qubic-core-lite/avx512vbmi2.cmake"
-        echo 'add_compile_options(-mavx512vbmi2)' > "$vbmi2_cmake"
-        avx_cmake_include="-DCMAKE_PROJECT_INCLUDE=${vbmi2_cmake}"
-    fi
-
-    mkdir -p build
-
-    # clear cmake cache if compiler changed (avoids stale cache losing build flags)
-    if [ -f build/CMakeCache.txt ]; then
-        local cached_cxx
-        cached_cxx=$(grep -oP 'CMAKE_CXX_COMPILER:FILEPATH=\K.*' build/CMakeCache.txt 2>/dev/null || true)
-        local target_cxx
-        target_cxx=$(command -v "${CLANG_CXX}" 2>/dev/null || echo "${CLANG_CXX}")
-        if [ -n "$cached_cxx" ] && [ "$cached_cxx" != "$target_cxx" ]; then
-            log_warn "compiler changed (${cached_cxx} -> ${target_cxx}), clearing cmake cache..."
-            rm -rf build/*
-        fi
-    fi
-
-    cd build
-    cmake .. \
-        -DCMAKE_C_COMPILER="${CLANG_C}" \
-        -DCMAKE_CXX_COMPILER="${CLANG_CXX}" \
-        -DBUILD_TESTS=OFF \
-        -DBUILD_BINARY=ON \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DENABLE_AVX512="${avx_flag}" \
-        ${avx_cmake_include}
-    local build_jobs="${BUILD_THREADS:-$(nproc)}"
-    cmake --build . -- -j"${build_jobs}"
-    log_ok "build complete"
-
-    create_lite_service
-
-    log_ok "done!"
-    print_status_manual
-}
-
-# --- component installers ---
-
-ensure_build_tools() {
-    log_info "checking build tools..."
-
-    # check clang version, install 18 if missing or too old
-    # prefer clang-18 binary first (avoids false warning when system default is older)
-    local need_clang=false
-    if command -v clang-18 &> /dev/null; then
-        local clang_ver
-        clang_ver=$(clang-18 --version | head -1 | grep -oP '\d+\.\d+\.\d+' | head -1)
-        log_ok "clang-18: ${clang_ver}"
-        CLANG_C="clang-18"
-        CLANG_CXX="clang++-18"
-    elif command -v clang &> /dev/null; then
-        local clang_ver clang_major
-        clang_ver=$(clang --version | head -1 | grep -oP '\d+\.\d+\.\d+' | head -1)
-        clang_major=$(echo "$clang_ver" | cut -d. -f1)
-        if [ "$clang_major" -ge 18 ] 2>/dev/null; then
-            log_ok "clang: ${clang_ver}"
-        else
-            log_warn "clang: ${clang_ver} (need >= 18) -- installing clang-18..."
-            need_clang=true
-        fi
-    else
-        log_warn "clang: not found -- installing clang-18..."
-        need_clang=true
-    fi
-
-    if [ "$need_clang" = true ]; then
-        # try default repos first (Ubuntu 24.04+ ships clang-18)
-        apt-get update -qq
-        if NEEDRESTART_MODE=a apt-get install -y -qq clang-18 libc++-18-dev libc++abi-18-dev 2>/dev/null; then
-            log_ok "clang-18 installed (default repos)"
-        else
-            # fallback: add LLVM upstream repo
-            log_info "clang-18 not in default repos, adding LLVM repo..."
-
-            # get codename from os-release (no lsb_release needed)
-            local codename=""
-            if [ -f /etc/os-release ]; then
-                codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
-            fi
-            if [ -z "$codename" ]; then
-                codename=$(. /etc/os-release && echo "$UBUNTU_CODENAME")
-            fi
-            if [ -z "$codename" ]; then
-                log_error "cannot determine distro codename for LLVM repo"
-                exit 1
-            fi
-
-            rm -f /usr/share/keyrings/llvm-archive-keyring.gpg
-            if ! wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
-                | gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg; then
-                log_error "failed to import LLVM GPG key"
-                exit 1
-            fi
-
-            echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-18 main" \
-                > /etc/apt/sources.list.d/llvm-18.list
-            apt-get update -qq
-
-            if ! NEEDRESTART_MODE=a apt-get install -y -qq clang-18 libc++-18-dev libc++abi-18-dev; then
-                log_error "failed to install clang-18"
-                exit 1
-            fi
-            log_ok "clang-18 installed (LLVM repo)"
-        fi
-
-        # verify clang-18 is actually usable
-        if ! command -v clang-18 &> /dev/null; then
-            log_error "clang-18 binary not found after install"
-            exit 1
-        fi
-
-        CLANG_C="clang-18"
-        CLANG_CXX="clang++-18"
-    fi
-
-    # cmake
-    if command -v cmake &> /dev/null; then
-        local cmake_ver
-        cmake_ver=$(cmake --version | head -1 | grep -oP '\d+\.\d+(\.\d+)?' | head -1)
-        log_ok "cmake: ${cmake_ver}"
-    else
-        log_error "cmake not found"; exit 1
-    fi
-
-    # nasm
-    if command -v nasm &> /dev/null; then
-        local nasm_ver
-        nasm_ver=$(nasm --version | grep -oP '\d+\.\d+\.\d+' | head -1)
-        log_ok "nasm: ${nasm_ver}"
-    else
-        log_error "nasm not found"; exit 1
-    fi
-}
-
-install_docker_engine() {
-    if command -v docker &> /dev/null; then
-        log_ok "docker: $(docker --version)"
-        return
-    fi
-    log_info "installing docker..."
-    curl -fsSL https://get.docker.com | sh
-    systemctl enable docker && systemctl start docker
-    log_ok "docker installed"
-}
-
-create_lite_service() {
-    log_info "creating systemd service..."
-
-    local node_args
-    node_args=$(build_node_args)
-
-    cat > /etc/systemd/system/qubic-lite.service <<EOF
-[Unit]
-Description=Qubic Lite Node
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=${DATA_DIR}/data
-ExecStart=${DATA_DIR}/qubic-core-lite/build/src/Qubic ${node_args}
-Restart=on-failure
-RestartSec=10
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload
-    systemctl enable qubic-lite && systemctl start qubic-lite
-    log_ok "service started"
-}
+    # Start container
+    log_info "Starting container..."
+    cd "${DATA_DIR}" && docker compose up -d
 
-# --- epoch data download (mainnet) ---
-
-download_epoch_data() {
-    local target_dir="$1"
-    local epoch="$2"  # optional: skip auto-detect if provided
-
-    if [ "$TESTNET" = true ]; then
-        return
-    fi
-
-    if [ "$SKIP_EPOCH" = true ]; then
-        log_warn "epoch download skipped (--no-epoch)"
-        log_warn "download manually from: https://storage.qubic.li/network/"
-        return
-    fi
-
-    # ensure unzip is available
-    if ! command -v unzip &> /dev/null; then
-        log_info "installing unzip..."
-        apt-get update -qq
-        NEEDRESTART_MODE=a apt-get install -y -qq unzip
-    fi
-
-    local storage_url="https://storage.qubic.li/network"
-
-    if [ -z "$epoch" ]; then
-        log_info "detecting latest epoch from storage.qubic.li..."
-        epoch=$(curl -sf "${storage_url}/" | grep -o 'ep[0-9]*-full\.zip' | grep -o '[0-9]*' | sort -n | tail -1)
-    fi
-
-    if [ -z "$epoch" ]; then
-        log_warn "could not detect latest epoch"
-        log_warn "download manually from: ${storage_url}/"
-        return
-    fi
-
-    local zip_file="ep${epoch}-full.zip"
-    local zip_url="${storage_url}/${epoch}/${zip_file}"
-
-    log_info "downloading epoch ${epoch} data (${zip_file}) ..."
-
-    mkdir -p "${target_dir}"
-
-    if ! wget --tries=3 --timeout=120 --waitretry=5 --show-progress -O "${target_dir}/${zip_file}" "${zip_url}"; then
-        log_warn "download failed: ${zip_url}"
-        log_warn "download manually from: ${storage_url}/"
-        rm -f "${target_dir}/${zip_file}"
-        return
-    fi
-
-    log_info "extracting epoch data..."
-    if ! unzip -o -q "${target_dir}/${zip_file}" -d "${target_dir}"; then
-        log_warn "extraction failed"
-        return
-    fi
-
-    rm -f "${target_dir}/${zip_file}"
-    DETECTED_EPOCH="${epoch}"
-    log_ok "epoch ${epoch} data ready in ${target_dir}"
-}
-
-# --- epoch / source checkout ---
-
-checkout_epoch() {
-    local src_dir="$1"
-    local epoch="$2"
-    local settings_file="${src_dir}/src/public_settings.h"
-
-    if [ -z "$epoch" ]; then
-        log_info "no target epoch set, building from latest source (HEAD)"
-        return
-    fi
-
-    # check if HEAD already matches
-    local head_epoch
-    head_epoch=$(grep -oP '#define\s+EPOCH\s+\K[0-9]+' "$settings_file" 2>/dev/null || true)
-
-    if [ "$head_epoch" = "$epoch" ]; then
-        log_ok "source already at epoch ${epoch} (HEAD)"
-        return
-    fi
-
-    log_info "source is epoch ${head_epoch}, need epoch ${epoch} -- searching git history..."
-
-    # find commit where public_settings.h had the target epoch
-    local target_commit=""
-    local commits
-    commits=$(cd "$src_dir" && git log --all --format="%H" -100 -- src/public_settings.h 2>/dev/null || true)
-    for c in $commits; do
-        local ep
-        ep=$(cd "$src_dir" && git show "${c}:src/public_settings.h" 2>/dev/null \
-            | grep -oP '#define\s+EPOCH\s+\K[0-9]+' || true)
-        if [ "$ep" = "$epoch" ]; then
-            target_commit="$c"
-            break
-        fi
-    done
-
-    if [ -z "$target_commit" ]; then
-        log_error "could not find epoch ${epoch} in git history!"
-        log_error "available epochs in recent history:"
-        for c in $commits; do
-            local ep
-            ep=$(cd "$src_dir" && git show "${c}:src/public_settings.h" 2>/dev/null \
-                | grep -oP '#define\s+EPOCH\s+\K[0-9]+' || true)
-            [ -n "$ep" ] && log_error "  epoch ${ep} (${c:0:8})"
-        done | sort -u
-        exit 1
-    fi
-
-    log_info "checking out commit ${target_commit:0:8} for epoch ${epoch}..."
-    cd "$src_dir" && git checkout "$target_commit" --quiet
-    rm -rf build
-
-    # verify
-    local verify_epoch
-    verify_epoch=$(grep -oP '#define\s+EPOCH\s+\K[0-9]+' "$settings_file" || true)
-    local verify_tick
-    verify_tick=$(grep -oP '#define\s+TICK\s+\K[0-9]+' "$settings_file" || true)
-    log_ok "checked out epoch ${verify_epoch} (TICK ${verify_tick}, commit ${target_commit:0:8})"
-}
-
-# --- patch max processors ---
-
-patch_max_processors() {
-    local src_dir="$1"
-    local max_procs="$2"
-    local settings_file="${src_dir}/src/public_settings.h"
-
-    if [ -z "$max_procs" ]; then
-        return
-    fi
-
-    if [ ! -f "$settings_file" ]; then
-        log_warn "public_settings.h not found, skipping processor patch"
-        return
-    fi
-
-    log_info "patching MAX_NUMBER_OF_PROCESSORS to ${max_procs}..."
-    # patch both TESTNET and mainnet definitions
-    sed -i "s/#define MAX_NUMBER_OF_PROCESSORS [0-9]*/#define MAX_NUMBER_OF_PROCESSORS ${max_procs}/g" "$settings_file"
-
-    # verify (check that all occurrences are patched)
-    local verify_count
-    verify_count=$(grep -c "#define MAX_NUMBER_OF_PROCESSORS ${max_procs}" "$settings_file" 2>/dev/null || echo 0)
-    if [ "$verify_count" -ge 1 ]; then
-        log_ok "MAX_NUMBER_OF_PROCESSORS set to ${max_procs} (${verify_count} occurrence(s))"
-    else
-        log_warn "patch may have failed, check public_settings.h"
-    fi
-}
-
-# --- status output ---
-
-print_status_docker() {
     local mode_label="mainnet"
     [ "$TESTNET" = true ] && mode_label="testnet"
 
+    log_ok "Lite node started! (${mode_label})"
     echo ""
-    echo -e "${GREEN}--- lite node ready (${mode_label}) ---${NC}"
-    echo "  dir:      ${DATA_DIR}"
-    echo "  P2P:      ${NODE_PORT}"
-    echo "  HTTP/RPC: http://localhost:${HTTP_PORT}"
-    [ -n "$PEERS" ] && echo "  peers:    ${PEERS}"
+    echo "  Container:  $CONTAINER_NAME"
+    echo "  Data:       ${DATA_DIR}/data"
+    echo "  P2P:        port ${P2P_PORT}"
+    echo "  HTTP:       http://localhost:${HTTP_PORT}"
     echo ""
-    echo "  docker compose -f ${DATA_DIR}/docker-compose.yml ps       # status"
-    echo "  docker compose -f ${DATA_DIR}/docker-compose.yml logs -f  # logs"
+    echo "  View logs:  ./lite.sh logs"
+    echo "  Status:     ./lite.sh status"
+    echo "  Update:     ./lite.sh update"
     echo ""
-    echo "  http://localhost:${HTTP_PORT}/live/v1   # live status"
-    echo "  http://localhost:${HTTP_PORT}/query/v1  # query API"
-    echo ""
-    if [ "$TESTNET" = false ]; then
-        echo "  epoch data: ${DATA_DIR}/data"
-        echo "  update epochs: https://storage.qubic.li/network/"
-        echo ""
-    fi
+
+    log_info "Entering ${DATA_DIR}..."
+    cd "${DATA_DIR}" && exec bash
 }
-
-print_status_manual() {
-    local mode_label="mainnet"
-    [ "$TESTNET" = true ] && mode_label="testnet"
-
-    echo ""
-    echo -e "${GREEN}--- lite node ready (${mode_label}) ---${NC}"
-    echo "  binary:   ${DATA_DIR}/qubic-core-lite/build/src/Qubic"
-    echo "  workdir:  ${DATA_DIR}/data"
-    echo "  service:  qubic-lite"
-    echo "  P2P:      ${NODE_PORT}"
-    echo "  HTTP/RPC: http://localhost:${HTTP_PORT}"
-    [ -n "$PEERS" ] && echo "  peers:    ${PEERS}"
-    echo ""
-    echo "  systemctl status qubic-lite    # status"
-    echo "  journalctl -u qubic-lite -f    # logs"
-    echo ""
-    echo "  http://localhost:${HTTP_PORT}/live/v1   # live status"
-    echo "  http://localhost:${HTTP_PORT}/query/v1  # query API"
-    echo ""
-    if [ "$TESTNET" = false ]; then
-        echo "  epoch data: ${DATA_DIR}/data"
-        echo "  update epochs: https://storage.qubic.li/network/"
-        echo ""
-    fi
-}
-
-# --- uninstall ---
 
 do_uninstall() {
-    log_info "uninstalling lite node..."
+    log_info "Uninstalling Lite node..."
 
-    # stop and remove docker containers
+    # Stop container
     if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
-        log_info "stopping docker containers..."
         docker compose -f "${DATA_DIR}/docker-compose.yml" down -v 2>/dev/null || true
-        log_ok "containers stopped and volumes removed"
+        log_ok "Container stopped"
+    elif container_exists; then
+        docker rm -f "$CONTAINER_NAME" &>/dev/null || true
+        log_ok "Container removed"
     fi
 
-    # remove docker image
-    if docker image inspect qubic-lite-node &>/dev/null; then
-        log_info "removing docker image..."
-        docker rmi qubic-lite-node 2>/dev/null || true
-        log_ok "docker image removed"
+    # Remove image
+    if docker image inspect "$IMAGE_NAME" &>/dev/null; then
+        docker rmi "$IMAGE_NAME" 2>/dev/null || true
+        log_ok "Image removed"
     fi
 
-    # stop systemd service if exists
-    if systemctl is-active --quiet qubic-lite 2>/dev/null; then
-        log_info "stopping systemd service..."
-        systemctl stop qubic-lite
-        systemctl disable qubic-lite
-        rm -f /etc/systemd/system/qubic-lite.service
-        systemctl daemon-reload
-        log_ok "service removed"
-    elif [ -f /etc/systemd/system/qubic-lite.service ]; then
-        log_info "removing systemd service file..."
-        systemctl disable qubic-lite 2>/dev/null || true
-        rm -f /etc/systemd/system/qubic-lite.service
-        systemctl daemon-reload
-        log_ok "service removed"
-    fi
-
-    # remove install directory
-    if [ -d "${DATA_DIR}" ]; then
-        log_info "removing ${DATA_DIR}..."
-        rm -rf "${DATA_DIR}"
-        log_ok "directory removed"
-    fi
-
-    echo ""
-    log_ok "lite node uninstalled"
-}
-
-# --- management commands ---
-
-detect_install_type() {
-    # returns: "docker", "manual", or "none"
-    if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
-        echo "docker"
-    elif systemctl list-unit-files qubic-lite.service &>/dev/null; then
-        echo "manual"
-    else
-        echo "none"
-    fi
-}
-
-check_installed() {
-    local install_type
-    install_type=$(detect_install_type)
-    if [ "$install_type" = "none" ]; then
-        log_error "lite node not installed in ${DATA_DIR}"
-        log_info "run '$0 docker' or '$0 manual' to install"
-        exit 1
-    fi
-}
-
-cmd_status() {
-    check_installed
-    local install_type
-    install_type=$(detect_install_type)
-    echo ""
-    if [ "$install_type" = "docker" ]; then
-        log_info "container status:"
-        docker compose -f "${DATA_DIR}/docker-compose.yml" ps
-    else
-        log_info "service status:"
-        systemctl status qubic-lite --no-pager || true
-    fi
-    echo ""
-    log_info "checking HTTP endpoint..."
-    local api_response
-    api_response=$(curl -sf --max-time 5 "http://localhost:${HTTP_PORT}/live/v1" 2>/dev/null) && {
-        echo "$api_response" | head -c 500
+    # Ask before removing data
+    if [ -d "$DATA_DIR" ]; then
         echo ""
-    } || log_warn "HTTP not responding on port ${HTTP_PORT}"
+        read -rp "Remove data directory ${DATA_DIR}? [y/N] " confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            rm -rf "$DATA_DIR"
+            log_ok "Data removed"
+        else
+            log_info "Data kept at ${DATA_DIR}"
+        fi
+    fi
+
+    log_ok "Uninstall complete"
 }
 
-cmd_logs() {
-    check_installed
-    local install_type
-    install_type=$(detect_install_type)
-    log_info "showing live logs (Ctrl+C to exit)..."
-    if [ "$install_type" = "docker" ]; then
-        docker compose -f "${DATA_DIR}/docker-compose.yml" logs -f
+do_status() {
+    if container_running; then
+        log_ok "Lite node is running"
+        echo ""
+        docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        echo ""
+        log_info "Checking HTTP endpoint..."
+        local response
+        response=$(curl -sf --max-time 5 "http://localhost:${HTTP_PORT}/live/v1" 2>/dev/null || true)
+        if [ -n "$response" ]; then
+            echo "$response" | head -c 500
+            echo ""
+        else
+            log_warn "HTTP not responding on port ${HTTP_PORT}"
+        fi
+    elif container_exists; then
+        log_warn "Lite node is stopped"
+        docker ps -a --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}"
     else
-        journalctl -u qubic-lite -f
+        log_info "Lite node is not installed"
     fi
 }
 
-cmd_stop() {
-    check_installed
-    local install_type
-    install_type=$(detect_install_type)
-    log_info "stopping..."
-    if [ "$install_type" = "docker" ]; then
-        docker compose -f "${DATA_DIR}/docker-compose.yml" stop
-    else
-        systemctl stop qubic-lite
-    fi
-    log_ok "stopped"
-}
-
-cmd_start() {
-    check_installed
-    local install_type
-    install_type=$(detect_install_type)
-    log_info "starting..."
-    if [ "$install_type" = "docker" ]; then
-        docker compose -f "${DATA_DIR}/docker-compose.yml" start
-    else
-        systemctl start qubic-lite
-    fi
-    log_ok "started"
-}
-
-cmd_restart() {
-    check_installed
-    local install_type
-    install_type=$(detect_install_type)
-    log_info "restarting..."
-    if [ "$install_type" = "docker" ]; then
-        docker compose -f "${DATA_DIR}/docker-compose.yml" restart
-    else
-        systemctl restart qubic-lite
-    fi
-    log_ok "restarted"
-}
-
-cmd_update() {
-    check_installed
-    local install_type
-    install_type=$(detect_install_type)
-    if [ "$install_type" = "manual" ]; then
-        log_error "update command only works with docker install"
-        log_info "for manual install: cd ${DATA_DIR}/qubic-core-lite && git pull && rebuild"
+do_logs() {
+    if ! container_exists; then
+        log_error "Container not found"
         exit 1
     fi
-    log_info "rebuilding docker image..."
-    docker build -t qubic-lite-node "${DATA_DIR}"
-    log_info "restarting container..."
-    docker compose -f "${DATA_DIR}/docker-compose.yml" up -d
-    log_ok "update complete"
+    log_info "Showing logs (Ctrl+C to exit)..."
+    docker logs -f "$CONTAINER_NAME"
 }
 
-# --- interactive setup ---
+do_stop() {
+    if container_running; then
+        docker stop "$CONTAINER_NAME"
+        log_ok "Stopped"
+    else
+        log_info "Already stopped"
+    fi
+}
 
-interactive_setup() {
-    echo ""
-    echo -e "${CYAN}Select mode:${NC}"
-    echo "  1) docker    (build + run via docker, recommended)"
-    echo "  2) manual    (build from source + systemd)"
-    echo "  3) uninstall (remove lite node)"
-    echo "  ─────────────────────────────────────────────"
-    echo "  4) status    (show status)"
-    echo "  5) logs      (show live logs)"
-    echo "  6) stop      (stop node)"
-    echo "  7) start     (start node)"
-    echo "  8) restart   (restart node)"
-    echo "  9) update    (rebuild + restart, docker only)"
-    echo ""
-    while true; do
-        read -rp "Enter choice [1-9]: " choice
-        case "$choice" in
-            1) MODE="docker";    break ;;
-            2) MODE="manual";    break ;;
-            3) MODE="uninstall"; break ;;
-            4) MODE="status";    break ;;
-            5) MODE="logs";      break ;;
-            6) MODE="stop";      break ;;
-            7) MODE="start";     break ;;
-            8) MODE="restart";   break ;;
-            9) MODE="update";    break ;;
-            *) echo "  Please enter 1-9." ;;
-        esac
-    done
-
-    # skip remaining prompts for uninstall and management commands
-    if [ "$MODE" = "uninstall" ] || [ "$MODE" = "status" ] || [ "$MODE" = "logs" ] || \
-       [ "$MODE" = "stop" ] || [ "$MODE" = "start" ] || [ "$MODE" = "restart" ] || [ "$MODE" = "update" ]; then
+do_start() {
+    if container_running; then
+        log_info "Already running"
         return
     fi
 
+    if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
+        cd "${DATA_DIR}" && docker compose start
+        log_ok "Started"
+    elif container_exists; then
+        docker start "$CONTAINER_NAME"
+        log_ok "Started"
+    else
+        log_error "Container not found. Run: $0 install"
+        exit 1
+    fi
+}
+
+do_restart() {
+    if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
+        cd "${DATA_DIR}" && docker compose restart
+        log_ok "Restarted"
+    elif container_exists; then
+        docker restart "$CONTAINER_NAME"
+        log_ok "Restarted"
+    else
+        log_error "Container not found. Run: $0 install"
+        exit 1
+    fi
+}
+
+do_update() {
+    log_info "Updating Lite node..."
+
+    if [ ! -d "${DATA_DIR}/qubic-core-lite" ]; then
+        log_error "Source not found. Run: $0 install"
+        exit 1
+    fi
+
+    # Update source
+    log_info "Pulling latest source..."
+    cd "${DATA_DIR}/qubic-core-lite"
+    git checkout main --quiet 2>/dev/null || true
+    git pull --quiet
+
+    # Rebuild image
+    log_info "Rebuilding Docker image..."
+    docker build -t "$IMAGE_NAME" "${DATA_DIR}"
+
+    # Restart container
+    if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
+        cd "${DATA_DIR}" && docker compose up -d
+    fi
+
+    log_ok "Update complete"
+}
+
+interactive_install() {
     echo ""
-    echo -e "${CYAN}Network:${NC}"
+    echo "=== Lite Node Installer ==="
+    echo ""
+
+    print_security_warning
+
+    # Network selection
+    echo "Network:"
     echo "  1) mainnet"
     echo "  2) testnet"
-    echo ""
-    while true; do
-        read -rp "Enter choice [1/2]: " net_choice
-        case "$net_choice" in
-            1) TESTNET=false; break ;;
-            2) TESTNET=true;  break ;;
-            *) echo "  Please enter 1 or 2." ;;
-        esac
-    done
+    read -rp "Choice [1]: " net_choice
+    [ "$net_choice" = "2" ] && TESTNET=true
 
     echo ""
+
+    # Get seed
     while [ -z "$OPERATOR_SEED" ]; do
         read -rp "Operator seed: " OPERATOR_SEED
-        [ -z "$OPERATOR_SEED" ] && echo "  Operator seed is required."
+        [ -z "$OPERATOR_SEED" ] && echo "  Seed is required."
     done
 
+    # Get alias
     while [ -z "$OPERATOR_ALIAS" ]; do
         read -rp "Operator alias: " OPERATOR_ALIAS
-        [ -z "$OPERATOR_ALIAS" ] && echo "  Operator alias is required."
+        [ -z "$OPERATOR_ALIAS" ] && echo "  Alias is required."
     done
 
+    # Max processors
     echo ""
-    read -rp "Max processors (Enter for default=8): " input_processors
-    if [ -n "$input_processors" ] && [ "$input_processors" != "0" ]; then
-        MAX_PROCESSORS="$input_processors"
-    fi
+    read -rp "Max processors (Enter for default=8): " input_procs
+    [ -n "$input_procs" ] && MAX_PROCESSORS="$input_procs"
 
-    # automatically fetch peers from API
     echo ""
-    PEERS=$(fetch_peers_from_api) || true
-
-    if [ -z "$PEERS" ]; then
-        echo ""
-        log_warn "automatic peer discovery failed"
-        read -rp "Enter peers manually (ip1,ip2, comma-separated): " PEERS
-        # sanitize: remove leading # or whitespace
-        PEERS=$(echo "$PEERS" | sed 's/^[#[:space:]]*//')
-
-        if [ -z "$PEERS" ]; then
-            log_error "at least one peer is required to start the node"
-            log_error "find peers at: https://app.qubic.li/network/live"
-            exit 1
-        fi
-    fi
-    echo ""
+    do_install
 }
 
-# --- arg parsing ---
+interactive_menu() {
+    echo ""
+    echo "=== Lite Node ==="
+    echo ""
+    echo "  1) install     Install Lite node"
+    echo "  2) uninstall   Remove Lite node"
+    echo "  3) status      Show status"
+    echo "  4) logs        Show logs"
+    echo "  5) stop        Stop node"
+    echo "  6) start       Start node"
+    echo "  7) restart     Restart node"
+    echo "  8) update      Update to latest"
+    echo ""
+    read -rp "Choice [1-8]: " choice
 
-parse_args() {
-    if [ $# -eq 0 ]; then
-        interactive_setup
-        return
-    fi
-
-    MODE="$1"; shift
-
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            --peers)         PEERS="$2";         shift 2 ;;
-            --testnet)       TESTNET=true;       shift   ;;
-            --port)          NODE_PORT="$2";      shift 2 ;;
-            --http-port)     HTTP_PORT="$2";      shift 2 ;;
-            --data-dir)      DATA_DIR="$2";       shift 2 ;;
-            --operator-seed) OPERATOR_SEED="$2";  shift 2 ;;
-            --operator-alias) OPERATOR_ALIAS="$2"; shift 2 ;;
-            --avx512)        ENABLE_AVX512=true;  shift   ;;
-            --security-tick) SECURITY_TICK="$2";  shift 2 ;;
-            --ticking-delay) TICKING_DELAY="$2";  shift 2 ;;
-            --epoch)         TARGET_EPOCH="$2";   shift 2 ;;
-            --no-epoch)      SKIP_EPOCH=true;     shift   ;;
-            --threads)       BUILD_THREADS="$2";  shift 2 ;;
-            --processors)    MAX_PROCESSORS="$2"; shift 2 ;;
-            --help|-h)       print_usage;         exit 0  ;;
-            *) log_error "unknown option: $1"; print_usage; exit 1 ;;
-        esac
-    done
-}
-
-# --- main ---
-
-main() {
-    echo -e "${CYAN}=== qubic lite node installer ===${NC}"
-    parse_args "$@"
-    check_root
-
-    # handle uninstall separately
-    if [ "$MODE" = "uninstall" ]; then
-        do_uninstall
-        exit 0
-    fi
-
-    # handle management commands (no seed/system check needed)
-    case "$MODE" in
-        status)  cmd_status;  exit 0 ;;
-        logs)    cmd_logs;    exit 0 ;;
-        stop)    cmd_stop;    exit 0 ;;
-        start)   cmd_start;   exit 0 ;;
-        restart) cmd_restart; exit 0 ;;
-        update)  cmd_update;  exit 0 ;;
+    case "$choice" in
+        1) interactive_install ;;
+        2) do_uninstall ;;
+        3) do_status ;;
+        4) do_logs ;;
+        5) do_stop ;;
+        6) do_start ;;
+        7) do_restart ;;
+        8) do_update ;;
+        *) log_error "Invalid choice"; exit 1 ;;
     esac
-
-    if [ -z "$OPERATOR_SEED" ]; then
-        log_error "--operator-seed is required."
-        print_usage
-        exit 1
-    fi
-
-    if [ -z "$OPERATOR_ALIAS" ]; then
-        log_error "--operator-alias is required."
-        print_usage
-        exit 1
-    fi
-
-    # auto-fetch peers if not provided via CLI
-    if [ -z "$PEERS" ]; then
-        PEERS=$(fetch_peers_from_api) || true
-        if [ -z "$PEERS" ]; then
-            log_error "no peers available and API unreachable"
-            log_error "use --peers <ip1,ip2,...> or find peers at: https://app.qubic.li/network/live"
-            exit 1
-        fi
-    fi
-
-    check_system
-
-    case "$MODE" in
-        docker) install_docker ;;
-        manual) install_manual ;;
-        *) log_error "unknown mode: ${MODE}"; print_usage; exit 1 ;;
-    esac
-
-    # copy script to install directory for future management
-    if [ -f "$SELF" ] && [ "$SELF" != "${DATA_DIR}/lite.sh" ]; then
-        cp "$SELF" "${DATA_DIR}/lite.sh"
-        chmod +x "${DATA_DIR}/lite.sh"
-        log_ok "script copied to ${DATA_DIR}/lite.sh"
-        rm -f "$SELF"
-    fi
 }
 
-main "$@"
+# --- Main ---
+
+OPERATOR_SEED=""
+OPERATOR_ALIAS=""
+PEER_LIST=""
+DETECTED_EPOCH=""
+
+# Parse arguments
+if [ $# -eq 0 ]; then
+    interactive_menu
+    exit 0
+fi
+
+COMMAND="$1"
+shift
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --seed)        OPERATOR_SEED="$2"; shift 2 ;;
+        --alias)       OPERATOR_ALIAS="$2"; shift 2 ;;
+        --peers)       PEER_LIST="$2"; shift 2 ;;
+        --testnet)     TESTNET=true; shift ;;
+        --avx512)      ENABLE_AVX512=true; shift ;;
+        --processors)  MAX_PROCESSORS="$2"; shift 2 ;;
+        --epoch)       TARGET_EPOCH="$2"; shift 2 ;;
+        --no-epoch)    SKIP_EPOCH=true; shift ;;
+        --p2p-port)    P2P_PORT="$2"; shift 2 ;;
+        --http-port)   HTTP_PORT="$2"; shift 2 ;;
+        --data-dir)    DATA_DIR="$2"; shift 2 ;;
+        --help|-h)     print_usage; exit 0 ;;
+        *)             log_error "Unknown option: $1"; print_usage; exit 1 ;;
+    esac
+done
+
+case "$COMMAND" in
+    install)    do_install ;;
+    uninstall)  do_uninstall ;;
+    status)     do_status ;;
+    logs)       do_logs ;;
+    stop)       do_stop ;;
+    start)      do_start ;;
+    restart)    do_restart ;;
+    update)     do_update ;;
+    help|--help|-h) print_usage ;;
+    *)          log_error "Unknown command: $COMMAND"; print_usage; exit 1 ;;
+esac
