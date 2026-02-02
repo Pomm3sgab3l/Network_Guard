@@ -252,23 +252,51 @@ do_stop() {
 do_start() {
     if container_running; then
         log_info "Already running"
-    elif container_exists; then
-        docker start "$CONTAINER_NAME"
-        log_ok "Started"
-    else
-        log_error "Container not found. Run: $0 install"
+        return
+    fi
+
+    # Check config file exists
+    if [ ! -f "${DATA_DIR}/bob.json" ]; then
+        log_error "Config file not found. Run: $0 install"
         exit 1
     fi
+
+    # Remove old container if exists
+    docker rm -f "$CONTAINER_NAME" &>/dev/null || true
+
+    # Start fresh container
+    log_info "Starting container..."
+    docker run -d \
+        --name "$CONTAINER_NAME" \
+        --restart unless-stopped \
+        -p "${P2P_PORT}:21842" \
+        -p "${API_PORT}:40420" \
+        -v "${DATA_DIR}/bob.json:/app/bob.json:ro" \
+        -v "${DATA_DIR}/data:/data" \
+        "$DOCKER_IMAGE":latest
+
+    log_ok "Started"
 }
 
 do_restart() {
-    if container_exists; then
-        docker restart "$CONTAINER_NAME"
-        log_ok "Restarted"
-    else
-        log_error "Container not found"
+    if ! container_exists && [ ! -f "${DATA_DIR}/bob.json" ]; then
+        log_error "Container not found. Run: $0 install"
         exit 1
     fi
+
+    log_info "Restarting..."
+    docker rm -f "$CONTAINER_NAME" &>/dev/null || true
+
+    docker run -d \
+        --name "$CONTAINER_NAME" \
+        --restart unless-stopped \
+        -p "${P2P_PORT}:21842" \
+        -p "${API_PORT}:40420" \
+        -v "${DATA_DIR}/bob.json:/app/bob.json:ro" \
+        -v "${DATA_DIR}/data:/data" \
+        "$DOCKER_IMAGE":latest
+
+    log_ok "Restarted"
 }
 
 do_update() {
