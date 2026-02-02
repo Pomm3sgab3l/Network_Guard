@@ -648,7 +648,7 @@ print_logo() {
                 ▀▀
 EOF
     echo -e "${NC}"
-    echo -e "       ${YELLOW}Qubic Lite Node Installer${NC}"
+    echo -e "       ${GREEN}Qubic Lite Node Installer${NC}"
     echo -e "       ${BLUE}─────────────────────────${NC}"
     echo ""
 }
@@ -658,11 +658,11 @@ interactive_menu() {
     print_logo
 
     echo "┌─────────────────────────────────────────┐"
-    echo -e "│ ${YELLOW}INSTALL${NC}                                 │"
+    echo -e "│ ${GREEN}INSTALL${NC}                                 │"
     echo "│   1) docker        install via docker   │"
     echo "│   2) uninstall     remove lite node     │"
     echo "│                                         │"
-    echo -e "│ ${YELLOW}MANAGE${NC}                                  │"
+    echo -e "│ ${GREEN}MANAGE${NC}                                  │"
     echo "│   3) status    4) logs      5) stop     │"
     echo "│   6) start     7) restart   8) update   │"
     echo "└─────────────────────────────────────────┘"
