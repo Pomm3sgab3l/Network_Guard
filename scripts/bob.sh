@@ -113,14 +113,14 @@ fetch_peers() {
     while [ $attempt -le $max_retries ]; do
         log_info "Fetching peers from qubic.global (attempt ${attempt}/${max_retries})..."
 
-        # Try to fetch peers
+        # Try to fetch peers (|| true to prevent set -e from exiting)
         local response
-        response=$(curl -s --max-time 15 "$PEERS_API" 2>/dev/null)
+        response=$(curl -s --max-time 15 "$PEERS_API" 2>/dev/null || true)
 
         if [ -n "$response" ]; then
             # Extract IPs from JSON response
             local peers
-            peers=$(echo "$response" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -6)
+            peers=$(echo "$response" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -6 || true)
 
             if [ -n "$peers" ]; then
                 # Format as JSON array with BM prefix and passcode
@@ -131,7 +131,7 @@ fetch_peers() {
                 done <<< "$peers"
 
                 local peer_count
-                peer_count=$(echo "$peers" | wc -l)
+                peer_count=$(echo "$peers" | wc -l || echo "0")
                 log_ok "Got ${peer_count} peers"
                 return 0
             fi
@@ -146,7 +146,7 @@ fetch_peers() {
     done
 
     log_warn "Could not fetch peers - node will try to discover them automatically"
-    return 1
+    return 0
 }
 
 generate_config() {
