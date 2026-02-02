@@ -628,20 +628,35 @@ interactive_install() {
     do_install
 }
 
+print_logo() {
+    echo -e "${GREEN}"
+    cat << 'EOF'
+                 ██████  ██    ██ ██████  ██  ██████
+                ██    ██ ██    ██ ██   ██ ██ ██
+                ██    ██ ██    ██ ██████  ██ ██
+                ██ ▄▄ ██ ██    ██ ██   ██ ██ ██
+                 ██████   ██████  ██████  ██  ██████
+                    ▀▀
+EOF
+    echo -e "${NC}"
+    echo -e "          ${YELLOW}Qubic Lite Node Installer${NC}"
+    echo -e "          ${BLUE}───────────────────────${NC}"
+    echo ""
+}
+
 interactive_menu() {
+    clear
+    print_logo
+
+    echo -e " ${YELLOW}INSTALL${NC}"
+    echo -e "   1) docker        install via docker"
+    echo -e "   2) uninstall     remove lite node"
     echo ""
-    echo "=== Lite Node ==="
+    echo -e " ${YELLOW}MANAGE${NC}"
+    echo -e "   3) status    4) logs      5) stop"
+    echo -e "   6) start     7) restart   8) update"
     echo ""
-    echo "  1) install     Install Lite node"
-    echo "  2) uninstall   Remove Lite node"
-    echo "  3) status      Show status"
-    echo "  4) logs        Show logs"
-    echo "  5) stop        Stop node"
-    echo "  6) start       Start node"
-    echo "  7) restart     Restart node"
-    echo "  8) update      Update to latest"
-    echo ""
-    read -rp "Choice [1-8]: " choice
+    read -rp " Choice [1-8]: " choice
 
     case "$choice" in
         1) interactive_install ;;
