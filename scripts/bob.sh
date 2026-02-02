@@ -482,17 +482,17 @@ interactive_menu() {
     echo ""
     print_logo
 
-    echo -e "${CYAN}┌───────────────────────────────────────┐${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}INSTALL${NC}                               ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   1) docker        install via docker ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   2) uninstall     remove bob node    ${CYAN}│${NC}"
-    echo -e "${CYAN}├───────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}MANAGE${NC}                                ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   3) status    4) logs     5) stop    ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC}   6) start     7) restart  8) update  ${CYAN}│${NC}"
-    echo -e "${CYAN}└───────────────────────────────────────┘${NC}"
+    echo -e "    ${CYAN}┌───────────────────────────────────────┐${NC}"
+    echo -e "    ${CYAN}│${NC} ${GREEN}INSTALL${NC}                               ${CYAN}│${NC}"
+    echo -e "    ${CYAN}│${NC}   1) docker        install via docker ${CYAN}│${NC}"
+    echo -e "    ${CYAN}│${NC}   2) uninstall     remove bob node    ${CYAN}│${NC}"
+    echo -e "    ${CYAN}├───────────────────────────────────────┤${NC}"
+    echo -e "    ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                ${CYAN}│${NC}"
+    echo -e "    ${CYAN}│${NC}   3) status    4) logs     5) stop    ${CYAN}│${NC}"
+    echo -e "    ${CYAN}│${NC}   6) start     7) restart  8) update  ${CYAN}│${NC}"
+    echo -e "    ${CYAN}└───────────────────────────────────────┘${NC}"
     echo ""
-    read -rp "Select [1-8]: " choice
+    read -rp "    Select [1-8]: " choice
 
     case "$choice" in
         1) interactive_install ;;
