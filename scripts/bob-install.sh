@@ -71,14 +71,6 @@ print_usage() {
     echo "  $0 install --seed abcde...xyz --alias mynode"
     echo "  $0 logs"
     echo "  $0 update"
-    echo ""
-    echo "Quick start with Docker directly:"
-    echo "  docker run -d --name qubic-bob \\"
-    echo "    -e NODE_SEED=your55characterseed \\"
-    echo "    -e NODE_ALIAS=mynode \\"
-    echo "    -p 21842:21842 -p 40420:40420 \\"
-    echo "    -v qubic-bob-data:/data \\"
-    echo "    qubiccore/bob"
 }
 
 print_security_warning() {
@@ -107,6 +99,35 @@ container_exists() {
 
 container_running() {
     docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
+}
+
+generate_config() {
+    local config_file="${DATA_DIR}/bob.json"
+    log_info "Generating config..."
+
+    cat > "$config_file" <<EOF
+{
+  "p2p-node": [],
+  "request-cycle-ms": 100,
+  "request-logging-cycle-ms": 30,
+  "future-offset": 3,
+  "log-level": "info",
+  "keydb-url": "tcp://127.0.0.1:6379",
+  "run-server": true,
+  "server-port": 21842,
+  "rpc-port": 40420,
+  "arbitrator-identity": "AFZPUAIYVPNUYGJRQVLUKOPPVLHAZQTGLYAAUUNBXFTVTAMSBKQBLEIEPCVJ",
+  "tick-storage-mode": "kvrocks",
+  "kvrocks-url": "tcp://127.0.0.1:6666",
+  "tx-storage-mode": "kvrocks",
+  "tx_tick_to_live": 10000,
+  "max-thread": 0,
+  "spam-qu-threshold": 100,
+  "node-seed": "${NODE_SEED}",
+  "node-alias": "${NODE_ALIAS}"
+}
+EOF
+    log_ok "Config: ${config_file}"
 }
 
 do_install() {
@@ -143,15 +164,17 @@ do_install() {
     cp "$0" "$SCRIPT_PATH" 2>/dev/null || true
     chmod +x "$SCRIPT_PATH" 2>/dev/null || true
 
+    # Generate config file with seed and alias
+    generate_config
+
     # Start container
     log_info "Starting container..."
     docker run -d \
         --name "$CONTAINER_NAME" \
         --restart unless-stopped \
-        -e NODE_SEED="$NODE_SEED" \
-        -e NODE_ALIAS="$NODE_ALIAS" \
         -p "${P2P_PORT}:21842" \
         -p "${API_PORT}:40420" \
+        -v "${DATA_DIR}/bob.json:/app/bob.json:ro" \
         -v "${DATA_DIR}/data:/data" \
         "$DOCKER_IMAGE":latest
 
@@ -256,30 +279,25 @@ do_update() {
         exit 1
     fi
 
+    # Check config file exists
+    if [ ! -f "${DATA_DIR}/bob.json" ]; then
+        log_error "Config file not found at ${DATA_DIR}/bob.json. Please reinstall."
+        exit 1
+    fi
+
     # Pull latest image
     log_info "Pulling latest image..."
     docker pull "$DOCKER_IMAGE":latest
 
-    # Get current config from container
-    local seed alias
-    seed=$(docker inspect "$CONTAINER_NAME" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep NODE_SEED | cut -d= -f2)
-    alias=$(docker inspect "$CONTAINER_NAME" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep NODE_ALIAS | cut -d= -f2)
-
-    if [ -z "$seed" ] || [ -z "$alias" ]; then
-        log_error "Could not read config from container. Please reinstall."
-        exit 1
-    fi
-
-    # Recreate container
+    # Recreate container (config is already in bob.json)
     docker rm -f "$CONTAINER_NAME"
 
     docker run -d \
         --name "$CONTAINER_NAME" \
         --restart unless-stopped \
-        -e NODE_SEED="$seed" \
-        -e NODE_ALIAS="$alias" \
         -p "${P2P_PORT}:21842" \
         -p "${API_PORT}:40420" \
+        -v "${DATA_DIR}/bob.json:/app/bob.json:ro" \
         -v "${DATA_DIR}/data:/data" \
         "$DOCKER_IMAGE":latest
 
