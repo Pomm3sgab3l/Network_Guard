@@ -21,8 +21,8 @@ Blockchain indexer with REST API for the Qubic network.
 
 ### Option 1: Docker (manual)
 
+**Install & Start:**
 ```bash
-# Start
 docker run -d --name qubic-bob \
   -e NODE_SEED=your55characterlowercaseseed \
   -e NODE_ALIAS=mynode \
@@ -30,22 +30,33 @@ docker run -d --name qubic-bob \
   -v qubic-bob-data:/data \
   --restart unless-stopped \
   qubiccore/bob
-
-# View logs
-docker logs -f qubic-bob
-
-# Stop
-docker stop qubic-bob
-
-# Start again
-docker start qubic-bob
-
-# Update
-docker pull qubiccore/bob && docker rm -f qubic-bob
-# Then run the "Start" command again
 ```
 
-**Data location:** Docker volume `qubic-bob-data` (use `docker volume inspect qubic-bob-data` to see path)
+**Management:**
+| Action | Command |
+|--------|---------|
+| View logs | `docker logs -f qubic-bob` |
+| Stop | `docker stop qubic-bob` |
+| Start | `docker start qubic-bob` |
+| Restart | `docker restart qubic-bob` |
+| Status | `docker ps -a --filter name=qubic-bob` |
+
+**Update:**
+```bash
+docker pull qubiccore/bob
+docker rm -f qubic-bob
+# Run the install command again
+```
+
+**Uninstall:**
+```bash
+docker rm -f qubic-bob           # Remove container
+docker volume rm qubic-bob-data  # Remove data (optional)
+docker rmi qubiccore/bob         # Remove image (optional)
+```
+
+**Data location:** Docker volume `qubic-bob-data`
+View path: `docker volume inspect qubic-bob-data`
 
 ### Option 2: Install Script (recommended)
 
