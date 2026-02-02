@@ -43,6 +43,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 log_info()  { echo -e "${BLUE}[*]${NC} $1"; }
@@ -464,7 +465,8 @@ EOF
         log_ok "Removed installer from download location"
     fi
 
-    log_info "Manage node with: cd ${DATA_DIR} && ./lite.sh"
+    log_info "Entering ${DATA_DIR}..."
+    cd "${DATA_DIR}" && exec bash
 }
 
 do_uninstall() {
@@ -636,7 +638,7 @@ interactive_install() {
 }
 
 print_logo() {
-    echo -e "${GREEN}"
+    echo -e "${CYAN}"
     cat << 'EOF'
             ██████  ██    ██ ██████  ██  ██████
             ██    ██ ██    ██ ██   ██ ██ ██
@@ -646,8 +648,8 @@ print_logo() {
                 ▀▀
 EOF
     echo -e "${NC}"
-    echo -e "    ${YELLOW}Qubic Lite Node Installer${NC}"
-    echo -e "    ${BLUE}─────────────────────────${NC}"
+    echo -e "       ${YELLOW}Qubic Lite Node Installer${NC}"
+    echo -e "       ${BLUE}─────────────────────────${NC}"
     echo ""
 }
 
