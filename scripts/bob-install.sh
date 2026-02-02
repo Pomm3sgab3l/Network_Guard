@@ -4,8 +4,8 @@
 # https://github.com/qubic/core-bob
 #
 # Usage:
-#   Interactive:  ./bob-install.sh
-#   CLI:          ./bob-install.sh install --seed <seed> --alias <alias>
+#   Interactive:  ./bob.sh
+#   CLI:          ./bob.sh install --seed <seed> --alias <alias>
 #
 # Commands:
 #   install       Install and start Bob node
@@ -84,8 +84,8 @@ print_usage() {
 print_security_warning() {
     echo ""
     log_warn "SECURITY TIP: To prevent your seed from being saved in shell history:"
-    echo "      - Add a SPACE before the command:  ' ./bob-install.sh install ...'"
-    echo "      - Or use interactive mode:  ./bob-install.sh"
+    echo "      - Add a SPACE before the command:  ' ./bob.sh install ...'"
+    echo "      - Or use interactive mode:  ./bob.sh"
     echo "      - Or set: export HISTCONTROL=ignorespace"
     echo ""
 }
