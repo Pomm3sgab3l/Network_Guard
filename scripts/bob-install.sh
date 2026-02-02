@@ -135,8 +135,13 @@ do_install() {
         docker rm -f "$CONTAINER_NAME" &>/dev/null || true
     fi
 
-    # Create data directory
+    # Create data directory and copy script
     mkdir -p "${DATA_DIR}/data"
+
+    # Copy this script to DATA_DIR for easy access
+    SCRIPT_PATH="${DATA_DIR}/bob.sh"
+    cp "$0" "$SCRIPT_PATH" 2>/dev/null || true
+    chmod +x "$SCRIPT_PATH" 2>/dev/null || true
 
     # Start container
     log_info "Starting container..."
@@ -157,9 +162,9 @@ do_install() {
     echo "  P2P:        port ${P2P_PORT}"
     echo "  API:        http://localhost:${API_PORT}"
     echo ""
-    echo "  View logs:  $0 logs"
-    echo "  Status:     $0 status"
-    echo "  Update:     $0 update"
+    echo "  View logs:  ${SCRIPT_PATH} logs"
+    echo "  Status:     ${SCRIPT_PATH} status"
+    echo "  Update:     ${SCRIPT_PATH} update"
 }
 
 do_uninstall() {
