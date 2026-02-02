@@ -150,16 +150,77 @@ wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main
 chmod +x lite.sh && ./lite.sh
 ```
 
+The script provides an interactive menu and stores data in `/opt/qubic-lite`.
+
 ## Management
 
 ```bash
+cd /opt/qubic-lite
 ./lite.sh status    # show status
 ./lite.sh logs      # view logs
 ./lite.sh stop      # stop node
 ./lite.sh start     # start node
 ./lite.sh restart   # restart node
 ./lite.sh update    # rebuild + restart
+./lite.sh uninstall # remove node
 ```
+
+## Ports
+
+| Port | Protocol | Description |
+|------|----------|-------------|
+| 21841 | TCP | P2P (required) |
+
+## Cloud Provider Examples
+
+All examples: Install dependencies, then run the install script.
+
+### Hetzner Cloud
+
+```bash
+# Create server (CCX33 = 8 vCPU, 64GB RAM for mainnet)
+hcloud server create --name lite-node --type ccx33 --image ubuntu-24.04
+
+ssh root@<IP>
+wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite-install.sh
+chmod +x lite.sh && ./lite.sh
+```
+
+### OVH / Bare Metal
+
+```bash
+apt update
+wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite-install.sh
+chmod +x lite.sh && ./lite.sh
+```
+
+### AWS EC2
+
+```bash
+# Launch c5.2xlarge (8 vCPU, 64GB) with Ubuntu 24.04 AMI
+# Security Group: allow TCP 21841, 22
+
+ssh -i key.pem ubuntu@<IP>
+wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite-install.sh
+chmod +x lite.sh && ./lite.sh
+```
+
+## Firewall
+
+```bash
+# UFW (Ubuntu)
+sudo ufw allow 22/tcp      # SSH
+sudo ufw allow 21841/tcp   # P2P
+sudo ufw enable
+```
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Build fails | Check if AVX2 is supported: `grep avx2 /proc/cpuinfo` |
+| Not syncing | Check logs, verify peers are connecting |
+| High CPU usage | Normal during sync |
 
 ---
 
