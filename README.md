@@ -19,8 +19,6 @@ Blockchain indexer with REST API for the Qubic network.
 
 ## Quick Start
 
-### Option 1: Install Script (recommended)
-
 ```bash
 wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
 chmod +x bob.sh && ./bob.sh
@@ -28,80 +26,7 @@ chmod +x bob.sh && ./bob.sh
 
 The script provides an interactive menu and stores data in `/opt/qubic-bob`.
 
-### Option 2: Docker (manual)
-
-The container requires a `bob.json` config file (environment variables are not supported).
-
-**Install & Start:**
-```bash
-# Create config
-mkdir -p /opt/qubic-bob
-cat > /opt/qubic-bob/bob.json << 'EOF'
-{
-  "node-seed": "your55characterlowercaseseed",
-  "p2p-node": [],
-  "arbitrator-identity": "AFZPUAIYVPNUYGJRQVLUKOPPVLHAZQTGLYAAUUNBXFTVTAMSBKQBLEIEPCVJ",
-  "keydb-url": "tcp://127.0.0.1:6379",
-  "kvrocks-url": "tcp://127.0.0.1:6666",
-  "tick-storage-mode": "kvrocks",
-  "log-level": "info"
-}
-EOF
-
-# Start container
-docker run -d --name qubic-bob \
-  -p 21842:21842 -p 40420:40420 \
-  -v /opt/qubic-bob/bob.json:/app/bob.json:ro \
-  -v /opt/qubic-bob/data:/data \
-  --restart unless-stopped \
-  qubiccore/bob
-```
-
-**Management:**
-| Action | Command |
-|--------|---------|
-| View logs | `docker logs -f qubic-bob` |
-| Stop | `docker stop qubic-bob` |
-| Start | `docker start qubic-bob` |
-| Restart | `docker restart qubic-bob` |
-| Status | `docker ps -a --filter name=qubic-bob` |
-
-**Update:**
-```bash
-docker pull qubiccore/bob
-docker rm -f qubic-bob
-docker run -d --name qubic-bob \
-  -p 21842:21842 -p 40420:40420 \
-  -v /opt/qubic-bob/bob.json:/app/bob.json:ro \
-  -v /opt/qubic-bob/data:/data \
-  --restart unless-stopped \
-  qubiccore/bob
-```
-
-**Uninstall:**
-```bash
-docker rm -f qubic-bob      # Remove container
-rm -rf /opt/qubic-bob       # Remove data (optional)
-docker rmi qubiccore/bob    # Remove image (optional)
-```
-
-**Data location:** `/opt/qubic-bob/data`
-
-## Security
-
-Your seed is stored in `/opt/qubic-bob/bob.json`. To prevent it from being saved in shell history when using manual setup:
-
-```bash
-# Add space before command to prevent history save
- cat > /opt/qubic-bob/bob.json << 'EOF'
-...
-EOF
-
-# Or use the interactive script
-./bob.sh
-```
-
-## Management (Script)
+## Management
 
 ```bash
 cd /opt/qubic-bob
