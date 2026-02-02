@@ -1,6 +1,6 @@
 # Network Guard
 
-Setup scripts for running [Bob Node](https://github.com/krypdkat/qubicbob) and [Lite Node](https://github.com/hackerby888/qubic-core-lite) on the Qubic network.
+Setup scripts for running [Bob Node](https://github.com/qubic/core-bob) and [Lite Node](https://github.com/hackerby888/qubic-core-lite) on the Qubic network.
 
 Bob is a blockchain indexer with REST API / JSON-RPC 2.0. Lite Node is a lightweight Qubic Core that runs natively on Linux (no UEFI needed).
 
@@ -387,6 +387,6 @@ rm -rf /opt/qubic-lite                                         # remove install 
 
 ## 15. Links
 
-- Bob Node: [krypdkat/qubicbob](https://github.com/krypdkat/qubicbob) | [Docker Hub](https://hub.docker.com/r/j0et0m/qubic-bob) | [REST API docs](https://github.com/krypdkat/qubicbob/tree/master/RESTAPI) | [Config docs](https://github.com/krypdkat/qubicbob/blob/master/CONFIG_FILE.MD)
+- Bob Node: [qubic/core-bob](https://github.com/qubic/core-bob) | [Docker Hub](https://hub.docker.com/r/qubiccore/bob) | [REST API docs](https://github.com/qubic/core-bob/tree/master/RESTAPI) | [Config docs](https://github.com/qubic/core-bob/blob/master/CONFIG_FILE.MD)
 - Lite Node: [hackerby888/qubic-core-lite](https://github.com/hackerby888/qubic-core-lite) | [Linux build guide](https://github.com/hackerby888/qubic-core-lite/blob/main/README_CLANG.md)
 - Qubic: [Core repo](https://github.com/qubic/core) | [Node docs](https://docs.qubic.org/learn/nodes/) | [Network dashboard](https://app.qubic.li/network/live)
