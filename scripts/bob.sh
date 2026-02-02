@@ -329,13 +329,6 @@ interactive_install() {
         [ -z "$NODE_ALIAS" ] && echo "  Alias is required."
     done
 
-    # Optional: ports
-    read -rp "P2P port [${P2P_PORT}]: " input
-    [ -n "$input" ] && P2P_PORT="$input"
-
-    read -rp "API port [${API_PORT}]: " input
-    [ -n "$input" ] && API_PORT="$input"
-
     echo ""
     do_install
 }
