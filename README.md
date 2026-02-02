@@ -35,7 +35,7 @@ That's it. The container handles everything automatically.
 **Or use the install script:**
 
 ```bash
-wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob-install.sh
+wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
 chmod +x bob.sh && ./bob.sh
 ```
 
