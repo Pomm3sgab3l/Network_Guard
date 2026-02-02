@@ -123,11 +123,11 @@ fetch_peers() {
             peers=$(echo "$response" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -6)
 
             if [ -n "$peers" ]; then
-                # Format as JSON array with port
+                # Format as JSON array with BM prefix and passcode
                 PEER_LIST=""
                 while IFS= read -r ip; do
                     [ -n "$PEER_LIST" ] && PEER_LIST="${PEER_LIST},"
-                    PEER_LIST="${PEER_LIST}\"${ip}:21841\""
+                    PEER_LIST="${PEER_LIST}\"BM:${ip}:21841:0-0-0-0\""
                 done <<< "$peers"
 
                 local peer_count
@@ -153,10 +153,10 @@ generate_config() {
     local config_file="${DATA_DIR}/bob.json"
     log_info "Generating config..."
 
-    # Use fetched peers or empty array
-    local peer_json="[]"
+    # Use fetched peers or empty array, always include 0.0.0.0 to listen on all interfaces
+    local peer_json="[\"BM:0.0.0.0:21841:0-0-0-0\"]"
     if [ -n "$PEER_LIST" ]; then
-        peer_json="[${PEER_LIST}]"
+        peer_json="[\"BM:0.0.0.0:21841:0-0-0-0\",${PEER_LIST}]"
     fi
 
     cat > "$config_file" <<EOF
@@ -196,8 +196,8 @@ update_peers_in_config() {
         return
     fi
 
-    # Update p2p-node in config using sed
-    local peer_json="[${PEER_LIST}]"
+    # Update p2p-node in config using sed (always include 0.0.0.0)
+    local peer_json="[\"BM:0.0.0.0:21841:0-0-0-0\",${PEER_LIST}]"
     sed -i "s|\"p2p-node\": \[.*\]|\"p2p-node\": ${peer_json}|" "$config_file"
     log_ok "Updated peers in config"
 }
