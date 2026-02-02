@@ -1,9 +1,9 @@
 #!/bin/bash
-# lite-install.sh - Qubic Lite Node installer & manager
+# lite.sh - Qubic Lite Node installer & manager
 #
 # Usage:
-#   Interactive:  ./lite-install.sh
-#   CLI:          ./lite-install.sh <mode> [options]
+#   Interactive:  ./lite.sh
+#   CLI:          ./lite.sh <mode> [options]
 #
 # Install modes:
 #   docker     build + run via docker
@@ -1093,10 +1093,10 @@ main() {
     esac
 
     # copy script to install directory for future management
-    if [ -f "$SELF" ] && [ "$SELF" != "${DATA_DIR}/lite-install.sh" ]; then
-        cp "$SELF" "${DATA_DIR}/lite-install.sh"
-        chmod +x "${DATA_DIR}/lite-install.sh"
-        log_ok "script copied to ${DATA_DIR}/lite-install.sh"
+    if [ -f "$SELF" ] && [ "$SELF" != "${DATA_DIR}/lite.sh" ]; then
+        cp "$SELF" "${DATA_DIR}/lite.sh"
+        chmod +x "${DATA_DIR}/lite.sh"
+        log_ok "script copied to ${DATA_DIR}/lite.sh"
         rm -f "$SELF"
     fi
 }

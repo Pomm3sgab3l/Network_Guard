@@ -146,7 +146,7 @@ Lightweight Qubic Core that runs on Linux without UEFI.
 ## Quick Start
 
 ```bash
-wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite-install.sh
+wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite.sh
 chmod +x lite.sh && ./lite.sh
 ```
 
@@ -182,7 +182,7 @@ All examples: Install dependencies, then run the install script.
 hcloud server create --name lite-node --type ccx33 --image ubuntu-24.04
 
 ssh root@<IP>
-wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite-install.sh
+wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite.sh
 chmod +x lite.sh && ./lite.sh
 ```
 
@@ -190,7 +190,7 @@ chmod +x lite.sh && ./lite.sh
 
 ```bash
 apt update
-wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite-install.sh
+wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite.sh
 chmod +x lite.sh && ./lite.sh
 ```
 
@@ -201,7 +201,7 @@ chmod +x lite.sh && ./lite.sh
 # Security Group: allow TCP 21841, 22
 
 ssh -i key.pem ubuntu@<IP>
-wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite-install.sh
+wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite.sh
 chmod +x lite.sh && ./lite.sh
 ```
 
