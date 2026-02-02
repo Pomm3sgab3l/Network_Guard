@@ -264,8 +264,8 @@ do_install() {
     echo "  Status:     ./bob.sh status"
     echo "  Update:     ./bob.sh update"
     echo ""
-    echo "To enter the bob directory, run:"
-    echo "  cd ${DATA_DIR}"
+    log_info "Entering ${DATA_DIR}..."
+    cd "${DATA_DIR}" && exec bash
 }
 
 do_uninstall() {
