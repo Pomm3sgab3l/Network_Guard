@@ -369,16 +369,16 @@ install_docker_standalone() {
     # Download bootstrap files before starting container
     download_bootstrap "${DATA_DIR}/data"
 
-    cat > "${DATA_DIR}/docker-compose.yml" <<'COMPOSEEOF'
+    cat > "${DATA_DIR}/docker-compose.yml" <<COMPOSEEOF
 services:
   qubic-bob:
-    image: j0et0m/qubic-bob-standalone:latest
+    image: ${DOCKER_IMAGE_STANDALONE}:latest
     restart: unless-stopped
     ports:
-      - "21842:21842"
-      - "40420:40420"
+      - "${SERVER_PORT}:21842"
+      - "${RPC_PORT}:40420"
     volumes:
-      - ./bob.json:/app/config/bob.json:ro
+      - ./bob.json:/app/bob.json:ro
       - qubic-bob-redis:/data/redis
       - qubic-bob-kvrocks:/data/kvrocks
       - ./data:/data/bob
@@ -387,9 +387,6 @@ volumes:
   qubic-bob-redis:
   qubic-bob-kvrocks:
 COMPOSEEOF
-
-    sed -i "s/\"21842:21842\"/\"${SERVER_PORT}:21842\"/" "${DATA_DIR}/docker-compose.yml"
-    sed -i "s/\"40420:40420\"/\"${RPC_PORT}:40420\"/" "${DATA_DIR}/docker-compose.yml"
 
     log_info "starting containers..."
     docker compose up -d
