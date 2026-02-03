@@ -73,7 +73,6 @@ print_usage() {
     echo "Install options:"
     echo "  --seed <seed>         Operator seed [REQUIRED]"
     echo "  --alias <alias>       Operator alias [REQUIRED]"
-    echo "  --testnet             Testnet mode (default: mainnet)"
     echo "  --avx512              Enable AVX-512 support"
     echo "  --processors <N>      Max processors (default: 8)"
     echo "  --epoch <N>           Build for specific epoch"
@@ -85,7 +84,6 @@ print_usage() {
     echo ""
     echo "Examples:"
     echo "  $0 install --seed myseed --alias mynode"
-    echo "  $0 install --seed myseed --alias mynode --testnet"
     echo "  $0 logs"
     echo "  $0 update"
 }
@@ -616,15 +614,6 @@ interactive_install() {
 
     print_security_warning
 
-    # Network selection
-    echo "Network:"
-    echo "  1) mainnet"
-    echo "  2) testnet"
-    read -rp "Choice [1]: " net_choice
-    [ "$net_choice" = "2" ] && TESTNET=true
-
-    echo ""
-
     # Get seed
     while [ -z "$OPERATOR_SEED" ]; do
         read -rp "Operator seed: " OPERATOR_SEED
@@ -713,7 +702,6 @@ while [ $# -gt 0 ]; do
         --seed)        OPERATOR_SEED="$2"; shift 2 ;;
         --alias)       OPERATOR_ALIAS="$2"; shift 2 ;;
         --peers)       PEER_LIST="$2"; shift 2 ;;
-        --testnet)     TESTNET=true; shift ;;
         --avx512)      ENABLE_AVX512=true; shift ;;
         --processors)  MAX_PROCESSORS="$2"; shift 2 ;;
         --epoch)       TARGET_EPOCH="$2"; shift 2 ;;
