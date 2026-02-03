@@ -428,10 +428,29 @@ EOF
     fi
 
     # Create docker-compose.yml
-    local docker_cmd
-    docker_cmd=$(build_docker_command)
+    if [ "$USE_DOCKERHUB" = true ]; then
+        # Docker Hub image uses environment variables
+        cat > "${DATA_DIR}/docker-compose.yml" <<EOF
+services:
+  qubic-lite:
+    image: ${final_image}
+    container_name: ${CONTAINER_NAME}
+    restart: unless-stopped
+    ports:
+      - "${P2P_PORT}:21841"
+      - "${HTTP_PORT}:41841"
+    volumes:
+      - ${DATA_DIR}/data:/app/data
+    environment:
+      - QUBIC_OPERATOR_SEED=${OPERATOR_SEED}
+      - QUBIC_PEERS=${PEER_LIST}
+EOF
+    else
+        # Build from source uses command arguments
+        local docker_cmd
+        docker_cmd=$(build_docker_command)
 
-    cat > "${DATA_DIR}/docker-compose.yml" <<EOF
+        cat > "${DATA_DIR}/docker-compose.yml" <<EOF
 services:
   qubic-lite:
     image: ${final_image}
@@ -445,6 +464,7 @@ services:
       - ${DATA_DIR}/data:/qubic/data
     ${docker_cmd}
 EOF
+    fi
 
     # Start container
     log_info "Starting container..."
