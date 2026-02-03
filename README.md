@@ -48,68 +48,15 @@ cd /opt/qubic-bob
 
 ## Cloud Provider Examples
 
-All examples: Install Docker, then run the install script.
+The following providers have been tested with Bob Node:
 
-### Hetzner Cloud
+- Hetzner Cloud
+- OVH / Bare Metal
+- AWS EC2
+- Google Cloud
+- DigitalOcean
 
-```bash
-# Create server (CPX31 = 8 vCPU, 16GB RAM)
-hcloud server create --name bob-node --type cpx31 --image ubuntu-24.04
-
-# SSH and install
-ssh root@<IP>
-curl -fsSL https://get.docker.com | sh
-wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
-chmod +x bob.sh && ./bob.sh
-```
-
-### OVH / Bare Metal
-
-```bash
-apt update && apt install -y docker.io
-wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
-chmod +x bob.sh && ./bob.sh
-```
-
-### AWS EC2
-
-```bash
-# Launch t3.xlarge (4 vCPU, 16GB) with Ubuntu 24.04 AMI
-# Security Group: allow TCP 21842, 40420, 22
-
-ssh -i key.pem ubuntu@<IP>
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker ubuntu && newgrp docker
-wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
-chmod +x bob.sh && ./bob.sh
-```
-
-### Google Cloud
-
-```bash
-# Create VM (e2-standard-4 = 4 vCPU, 16GB)
-gcloud compute instances create bob-node \
-  --machine-type=e2-standard-4 \
-  --image-family=ubuntu-2404-lts-amd64 \
-  --image-project=ubuntu-os-cloud
-
-gcloud compute ssh bob-node
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER && newgrp docker
-wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
-chmod +x bob.sh && ./bob.sh
-```
-
-### DigitalOcean
-
-```bash
-# Create Droplet: 4 vCPU, 16GB RAM, Ubuntu 24.04
-
-ssh root@<IP>
-curl -fsSL https://get.docker.com | sh
-wget -O bob.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh
-chmod +x bob.sh && ./bob.sh
-```
+> **Note:** These are examples only. We do not guarantee that any provider permits running blockchain nodes. Please check the provider's terms of service before deploying.
 
 ## Firewall
 
