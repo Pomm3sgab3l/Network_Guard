@@ -125,6 +125,8 @@ The following providers have been tested with Lite Node:
 - Hetzner Cloud
 - OVH / Bare Metal
 - AWS EC2
+- Google Cloud
+- DigitalOcean
 
 > **Note:** These are examples only. We do not guarantee that any provider permits running blockchain nodes. Please check the provider's terms of service before deploying.
 
