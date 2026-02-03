@@ -348,21 +348,21 @@ do_info() {
     echo -e "${GREEN}=== Bob Node Info ===${NC}"
     echo ""
 
-    # Parse and display key info
-    local epoch tick alias identity version peers
-    epoch=$(echo "$response" | grep -oP '"epoch":\K[0-9]+' | head -1)
-    tick=$(echo "$response" | grep -oP '"tick":\K[0-9]+' | head -1)
+    # Parse and display key info (bob uses different field names)
+    local epoch tick alias operator version uptime
+    epoch=$(echo "$response" | grep -oP '"currentProcessingEpoch":\K[0-9]+')
+    tick=$(echo "$response" | grep -oP '"currentFetchingTick":\K[0-9]+')
     alias=$(echo "$response" | grep -oP '"alias":"[^"]*"' | cut -d'"' -f4)
-    identity=$(echo "$response" | grep -oP '"identity":"[^"]*"' | cut -d'"' -f4)
-    version=$(echo "$response" | grep -oP '"version":"[^"]*"' | cut -d'"' -f4)
-    peers=$(echo "$response" | grep -oP '"peers":\K[0-9]+')
+    operator=$(echo "$response" | grep -oP '"operator":"[^"]*"' | cut -d'"' -f4)
+    version=$(echo "$response" | grep -oP '"bobVersion":\s*"[^"]*"' | cut -d'"' -f4)
+    uptime=$(echo "$response" | grep -oP '"uptime":\K[0-9]+')
 
     [ -n "$alias" ] && echo -e "  Alias:     ${CYAN}${alias}${NC}"
-    [ -n "$identity" ] && echo -e "  Identity:  ${CYAN}${identity}${NC}"
+    [ -n "$operator" ] && echo -e "  Operator:  ${CYAN}${operator}${NC}"
     [ -n "$epoch" ] && echo -e "  Epoch:     ${epoch}"
     [ -n "$tick" ] && echo -e "  Tick:      ${tick}"
     [ -n "$version" ] && echo -e "  Version:   ${version}"
-    [ -n "$peers" ] && echo -e "  Peers:     ${peers}"
+    [ -n "$uptime" ] && echo -e "  Uptime:    ${uptime}s"
     echo ""
 
     log_info "Raw response:"
