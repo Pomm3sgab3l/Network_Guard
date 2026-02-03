@@ -23,6 +23,7 @@ set -e
 # --- Config ---
 CONTAINER_NAME="qubic-lite"
 IMAGE_NAME="qubic-lite-node"
+DOCKERHUB_IMAGE="qubiccore/lite"
 DATA_DIR="/opt/qubic-lite"
 REPO_URL="https://github.com/hackerby888/qubic-core-lite.git"
 PEERS_API="https://api.qubic.global/random-peers?service=bobNode&litePeers=8"
@@ -37,6 +38,7 @@ ENABLE_AVX512=false
 MAX_PROCESSORS=""
 TARGET_EPOCH=""
 SKIP_EPOCH=false
+USE_DOCKERHUB=false
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -73,9 +75,10 @@ print_usage() {
     echo "Install options:"
     echo "  --seed <seed>         Operator seed [REQUIRED]"
     echo "  --alias <alias>       Operator alias [REQUIRED]"
-    echo "  --avx512              Enable AVX-512 support"
-    echo "  --processors <N>      Max processors (default: 8)"
-    echo "  --epoch <N>           Build for specific epoch"
+    echo "  --dockerhub           Use pre-built Docker Hub image (beta)"
+    echo "  --avx512              Enable AVX-512 support (build only)"
+    echo "  --processors <N>      Max processors (build only)"
+    echo "  --epoch <N>           Build for specific epoch (build only)"
     echo "  --no-epoch            Skip epoch data download"
     echo "  --peers <ip1,ip2>     Peer IPs (auto-fetched if omitted)"
     echo "  --p2p-port <port>     P2P port (default: 21841)"
@@ -84,6 +87,7 @@ print_usage() {
     echo ""
     echo "Examples:"
     echo "  $0 install --seed myseed --alias mynode"
+    echo "  $0 install --seed myseed --alias mynode --dockerhub"
     echo "  $0 logs"
     echo "  $0 update"
 }
@@ -351,44 +355,46 @@ do_install() {
         fi
     fi
 
-    # Detect and download epoch
-    detect_epoch
-    download_epoch_data
-
-    # Clone source
-    log_info "Cloning qubic-core-lite..."
-    if [ -d "${DATA_DIR}/qubic-core-lite" ]; then
-        cd "${DATA_DIR}/qubic-core-lite"
-        git checkout main --quiet 2>/dev/null || true
-        git pull --quiet
+    # Build or pull image
+    local final_image
+    if [ "$USE_DOCKERHUB" = true ]; then
+        # Quick install: pull from Docker Hub
+        log_info "Pulling image from Docker Hub..."
+        docker pull "${DOCKERHUB_IMAGE}"
+        final_image="${DOCKERHUB_IMAGE}"
+        log_ok "Image ready"
     else
-        git clone --quiet "${REPO_URL}" "${DATA_DIR}/qubic-core-lite"
-    fi
+        # Build from source
+        detect_epoch
+        download_epoch_data
 
-    # Checkout correct epoch
-    checkout_epoch "${DATA_DIR}/qubic-core-lite" "$DETECTED_EPOCH"
+        log_info "Cloning qubic-core-lite..."
+        if [ -d "${DATA_DIR}/qubic-core-lite" ]; then
+            cd "${DATA_DIR}/qubic-core-lite"
+            git checkout main --quiet 2>/dev/null || true
+            git pull --quiet
+        else
+            git clone --quiet "${REPO_URL}" "${DATA_DIR}/qubic-core-lite"
+        fi
 
-    # Patch processors if specified
-    patch_processors "${DATA_DIR}/qubic-core-lite" "$MAX_PROCESSORS"
+        checkout_epoch "${DATA_DIR}/qubic-core-lite" "$DETECTED_EPOCH"
+        patch_processors "${DATA_DIR}/qubic-core-lite" "$MAX_PROCESSORS"
 
-    # Build Docker image
-    log_info "Building Docker image (this takes a while)..."
+        log_info "Building Docker image (this takes a while)..."
 
-    local avx_flag="OFF"
-    local avx_cmake=""
-    if [ "$ENABLE_AVX512" = true ]; then
-        avx_flag="ON"
-        avx_cmake='RUN echo "add_compile_options(-mavx512vbmi2)" > /app/avx512.cmake'
-    fi
+        local avx_flag="OFF"
+        local avx_cmake=""
+        if [ "$ENABLE_AVX512" = true ]; then
+            avx_flag="ON"
+            avx_cmake='RUN echo "add_compile_options(-mavx512vbmi2)" > /app/avx512.cmake'
+        fi
 
-    local avx_include=""
-    [ "$ENABLE_AVX512" = true ] && avx_include="-DCMAKE_PROJECT_INCLUDE=/app/avx512.cmake"
+        local avx_include=""
+        [ "$ENABLE_AVX512" = true ] && avx_include="-DCMAKE_PROJECT_INCLUDE=/app/avx512.cmake"
 
-    # Create .dockerignore
-    printf "data/\nqubic-core-lite/.git/\n" > "${DATA_DIR}/.dockerignore"
+        printf "data/\nqubic-core-lite/.git/\n" > "${DATA_DIR}/.dockerignore"
 
-    # Create Dockerfile
-    cat > "${DATA_DIR}/Dockerfile" <<EOF
+        cat > "${DATA_DIR}/Dockerfile" <<EOF
 FROM ubuntu:24.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \\
@@ -417,7 +423,9 @@ EXPOSE ${P2P_PORT} ${HTTP_PORT}
 ENTRYPOINT ["/qubic/Qubic"]
 EOF
 
-    docker build -t "$IMAGE_NAME" "${DATA_DIR}"
+        docker build -t "$IMAGE_NAME" "${DATA_DIR}"
+        final_image="${IMAGE_NAME}"
+    fi
 
     # Create docker-compose.yml
     local docker_cmd
@@ -426,7 +434,7 @@ EOF
     cat > "${DATA_DIR}/docker-compose.yml" <<EOF
 services:
   qubic-lite:
-    image: ${IMAGE_NAME}
+    image: ${final_image}
     container_name: ${CONTAINER_NAME}
     restart: unless-stopped
     working_dir: /qubic/data
@@ -442,8 +450,8 @@ EOF
     log_info "Starting container..."
     cd "${DATA_DIR}" && docker compose up -d
 
-    local mode_label="mainnet"
-    [ "$TESTNET" = true ] && mode_label="testnet"
+    local mode_label="build"
+    [ "$USE_DOCKERHUB" = true ] && mode_label="dockerhub"
 
     log_ok "Lite node started! (${mode_label})"
     echo ""
@@ -658,25 +666,27 @@ interactive_menu() {
 
     echo -e "         ${CYAN}┌────────────────────────────────────────┐${NC}"
     echo -e "         ${CYAN}│${NC} ${GREEN}INSTALL${NC}                                ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   1) docker        install via docker  ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   2) uninstall     remove lite node    ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   1) docker        build from source   ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   2) beta          quick install (v1)  ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   3) uninstall     remove lite node    ${CYAN}│${NC}"
     echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
     echo -e "         ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                 ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   3) status    4) logs      5) stop    ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   6) start     7) restart   8) update  ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   4) status    5) logs      6) stop    ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   7) start     8) restart   9) update  ${CYAN}│${NC}"
     echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
     echo ""
-    read -rp "         Select [1-8]: " choice
+    read -rp "         Select [1-9]: " choice
 
     case "$choice" in
         1) interactive_install ;;
-        2) do_uninstall ;;
-        3) do_status ;;
-        4) do_logs ;;
-        5) do_stop ;;
-        6) do_start ;;
-        7) do_restart ;;
-        8) do_update ;;
+        2) USE_DOCKERHUB=true; interactive_install ;;
+        3) do_uninstall ;;
+        4) do_status ;;
+        5) do_logs ;;
+        6) do_stop ;;
+        7) do_start ;;
+        8) do_restart ;;
+        9) do_update ;;
         *) log_error "Invalid choice"; exit 1 ;;
     esac
 }
@@ -702,6 +712,7 @@ while [ $# -gt 0 ]; do
         --seed)        OPERATOR_SEED="$2"; shift 2 ;;
         --alias)       OPERATOR_ALIAS="$2"; shift 2 ;;
         --peers)       PEER_LIST="$2"; shift 2 ;;
+        --dockerhub)   USE_DOCKERHUB=true; shift ;;
         --avx512)      ENABLE_AVX512=true; shift ;;
         --processors)  MAX_PROCESSORS="$2"; shift 2 ;;
         --epoch)       TARGET_EPOCH="$2"; shift 2 ;;
