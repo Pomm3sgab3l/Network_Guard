@@ -101,11 +101,13 @@ print_security_warning() {
 
 check_docker() {
     if ! command -v docker &> /dev/null; then
-        log_error "Docker not found. Please install Docker first:"
-        echo ""
-        echo "  curl -fsSL https://get.docker.com | sh"
-        echo ""
-        exit 1
+        log_warn "Docker not found. Installing..."
+        curl -fsSL https://get.docker.com | sh
+        if ! command -v docker &> /dev/null; then
+            log_error "Docker installation failed"
+            exit 1
+        fi
+        log_ok "Docker installed"
     fi
     log_ok "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')"
 }
