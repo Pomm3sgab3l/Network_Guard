@@ -56,6 +56,7 @@ print_usage() {
     echo "  install       Install and start Bob node"
     echo "  uninstall     Remove Bob node and data"
     echo "  status        Show container status"
+    echo "  info          Show node info (tick, epoch, identity)"
     echo "  logs          Show live logs (Ctrl+C to exit)"
     echo "  stop          Stop container"
     echo "  start         Start container"
@@ -328,6 +329,47 @@ do_status() {
     fi
 }
 
+do_info() {
+    if ! container_running; then
+        log_error "Bob node is not running"
+        exit 1
+    fi
+
+    log_info "Fetching node info..."
+    local response
+    response=$(curl -sf --max-time 10 "http://localhost:${API_PORT}/status" 2>/dev/null || true)
+
+    if [ -z "$response" ]; then
+        log_error "Could not fetch status from port ${API_PORT}"
+        exit 1
+    fi
+
+    echo ""
+    echo -e "${GREEN}=== Bob Node Info ===${NC}"
+    echo ""
+
+    # Parse and display key info
+    local epoch tick alias identity version peers
+    epoch=$(echo "$response" | grep -oP '"epoch":\K[0-9]+' | head -1)
+    tick=$(echo "$response" | grep -oP '"tick":\K[0-9]+' | head -1)
+    alias=$(echo "$response" | grep -oP '"alias":"[^"]*"' | cut -d'"' -f4)
+    identity=$(echo "$response" | grep -oP '"identity":"[^"]*"' | cut -d'"' -f4)
+    version=$(echo "$response" | grep -oP '"version":"[^"]*"' | cut -d'"' -f4)
+    peers=$(echo "$response" | grep -oP '"peers":\K[0-9]+')
+
+    [ -n "$alias" ] && echo -e "  Alias:     ${CYAN}${alias}${NC}"
+    [ -n "$identity" ] && echo -e "  Identity:  ${CYAN}${identity}${NC}"
+    [ -n "$epoch" ] && echo -e "  Epoch:     ${epoch}"
+    [ -n "$tick" ] && echo -e "  Tick:      ${tick}"
+    [ -n "$version" ] && echo -e "  Version:   ${version}"
+    [ -n "$peers" ] && echo -e "  Peers:     ${peers}"
+    echo ""
+
+    log_info "Raw response:"
+    echo "$response" | head -c 1000
+    echo ""
+}
+
 do_logs() {
     if ! container_exists; then
         log_error "Container not found"
@@ -497,21 +539,23 @@ interactive_menu() {
     echo -e "         ${CYAN}│${NC}   2) uninstall     remove bob node     ${CYAN}│${NC}"
     echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
     echo -e "         ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                 ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   3) status    4) logs      5) stop    ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   6) start     7) restart   8) update  ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   3) status    4) info      5) logs    ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   6) stop      7) start     8) restart ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   9) update                            ${CYAN}│${NC}"
     echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
     echo ""
-    read -rp "         Select [1-8]: " choice
+    read -rp "         Select [1-9]: " choice
 
     case "$choice" in
         1) interactive_install ;;
         2) do_uninstall ;;
         3) do_status ;;
-        4) do_logs ;;
-        5) do_stop ;;
-        6) do_start ;;
-        7) do_restart ;;
-        8) do_update ;;
+        4) do_info ;;
+        5) do_logs ;;
+        6) do_stop ;;
+        7) do_start ;;
+        8) do_restart ;;
+        9) do_update ;;
         *) log_error "Invalid choice"; exit 1 ;;
     esac
 }
@@ -546,6 +590,7 @@ case "$COMMAND" in
     install)    do_install ;;
     uninstall)  do_uninstall ;;
     status)     do_status ;;
+    info)       do_info ;;
     logs)       do_logs ;;
     stop)       do_stop ;;
     start)      do_start ;;
