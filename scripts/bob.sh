@@ -295,6 +295,7 @@ do_uninstall() {
         echo ""
         read -rp "Remove data directory ${DATA_DIR}? [y/N] " confirm
         if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            cd ~ || cd /
             rm -rf "$DATA_DIR"
             log_ok "Data removed"
         else
@@ -306,6 +307,9 @@ do_uninstall() {
     docker volume rm qubic-bob-data &>/dev/null || true
 
     log_ok "Uninstall complete"
+
+    # Return to home if current dir was removed
+    [[ ! -d "$PWD" ]] && exec bash -c "cd ~; exec bash"
 }
 
 do_status() {
