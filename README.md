@@ -120,37 +120,13 @@ cd /opt/qubic-lite
 
 ## Cloud Provider Examples
 
-All examples: Install dependencies, then run the install script.
+The following providers have been tested with Lite Node:
 
-### Hetzner Cloud
+- Hetzner Cloud
+- OVH / Bare Metal
+- AWS EC2
 
-```bash
-# Create server (CCX33 = 8 vCPU, 64GB RAM for mainnet)
-hcloud server create --name lite-node --type ccx33 --image ubuntu-24.04
-
-ssh root@<IP>
-wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite.sh
-chmod +x lite.sh && ./lite.sh
-```
-
-### OVH / Bare Metal
-
-```bash
-apt update
-wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite.sh
-chmod +x lite.sh && ./lite.sh
-```
-
-### AWS EC2
-
-```bash
-# Launch c5.2xlarge (8 vCPU, 64GB) with Ubuntu 24.04 AMI
-# Security Group: allow TCP 21841, 22
-
-ssh -i key.pem ubuntu@<IP>
-wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite.sh
-chmod +x lite.sh && ./lite.sh
-```
+> **Note:** These are examples only. We do not guarantee that any provider permits running blockchain nodes. Please check the provider's terms of service before deploying.
 
 ## Firewall
 
