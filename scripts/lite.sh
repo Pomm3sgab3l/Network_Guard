@@ -490,13 +490,14 @@ do_uninstall() {
     fi
 
     # Ask before removing data
+    local data_removed=false
     if [ -d "$DATA_DIR" ]; then
         echo ""
         read -rp "Remove data directory ${DATA_DIR}? [y/N] " confirm
         if [[ "$confirm" =~ ^[Yy]$ ]]; then
-            cd ~ || cd /
             rm -rf "$DATA_DIR"
             log_ok "Data removed"
+            data_removed=true
         else
             log_info "Data kept at ${DATA_DIR}"
         fi
@@ -504,8 +505,10 @@ do_uninstall() {
 
     log_ok "Uninstall complete"
 
-    # Return to home if current dir was removed
-    [[ ! -d "$PWD" ]] && exec bash -c "cd ~; exec bash"
+    # Return to home if data dir was removed
+    if [ "$data_removed" = true ]; then
+        cd ~ && exec bash
+    fi
 }
 
 do_status() {
