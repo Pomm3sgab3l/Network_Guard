@@ -640,17 +640,17 @@ interactive_install() {
 print_logo() {
     echo -e "${CYAN}"
     cat << 'EOF'
-         ██████  ██    ██ ██████  ██  ██████
-         ██    ██ ██    ██ ██   ██ ██ ██
-         ██    ██ ██    ██ ██████  ██ ██
-         ██ ▄▄ ██ ██    ██ ██   ██ ██ ██
-          ██████   ██████  ██████  ██  ██████
-             ▀▀
+            ██████  ██    ██ ██████  ██  ██████
+            ██    ██ ██    ██ ██   ██ ██ ██
+            ██    ██ ██    ██ ██████  ██ ██
+            ██ ▄▄ ██ ██    ██ ██   ██ ██ ██
+             ██████   ██████  ██████  ██  ██████
+                ▀▀
 EOF
     echo -e "${NC}"
     echo ""
-    echo -e "    ${GREEN}Qubic Lite Node Installer${NC}"
-    echo "    ─────────────────────────"
+    echo -e "                  ${GREEN}Qubic Lite Node Installer${NC}"
+    echo -e "                  ${CYAN}─────────────────────────${NC}"
     echo ""
 }
 
@@ -658,17 +658,17 @@ interactive_menu() {
     echo ""
     print_logo
 
-    echo "┌────────────────────────────────────────┐"
-    echo -e "│ ${GREEN}INSTALL${NC}                                │"
-    echo "│   1) docker        install via docker  │"
-    echo "│   2) uninstall     remove lite node    │"
-    echo "├────────────────────────────────────────┤"
-    echo -e "│ ${GREEN}MANAGE${NC}                                 │"
-    echo "│   3) status    4) logs     5) stop     │"
-    echo "│   6) start     7) restart  8) update   │"
-    echo "└────────────────────────────────────────┘"
+    echo -e "         ${CYAN}┌────────────────────────────────────────┐${NC}"
+    echo -e "         ${CYAN}│${NC} ${GREEN}INSTALL${NC}                                ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   1) docker        install via docker  ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   2) uninstall     remove lite node    ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                 ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   3) status    4) logs      5) stop    ${CYAN}│${NC}"
+    echo -e "         ${CYAN}│${NC}   6) start     7) restart   8) update  ${CYAN}│${NC}"
+    echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
     echo ""
-    read -rp "Select [1-8]: " choice
+    read -rp "         Select [1-8]: " choice
 
     case "$choice" in
         1) interactive_install ;;
