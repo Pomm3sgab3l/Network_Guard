@@ -130,8 +130,8 @@ do_install() {
     fi
     docker rm -f watchtower &>/dev/null || true
 
-    # Create directories
-    mkdir -p "${DATA_DIR}/data"
+    # Create directory
+    mkdir -p "${DATA_DIR}"
 
     # Copy script for management
     cp "$0" "${DATA_DIR}/bob.sh" 2>/dev/null || true
@@ -160,8 +160,6 @@ services:
     ports:
       - "${P2P_PORT}:21842"
       - "${API_PORT}:40420"
-    volumes:
-      - ${DATA_DIR}/data:/data
     env_file:
       - .env
     environment:
@@ -186,7 +184,6 @@ EOF
     log_ok "Bob node started!"
     echo ""
     echo "  Container:   $CONTAINER_NAME"
-    echo "  Data:        ${DATA_DIR}/data"
     echo "  Config:      ${DATA_DIR}/.env"
     echo "  P2P:         port ${P2P_PORT}"
     echo "  API:         http://localhost:${API_PORT}"

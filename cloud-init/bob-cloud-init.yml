@@ -26,7 +26,7 @@ runcmd:
   - ufw allow 40420/tcp
   - ufw --force enable
 
-  # Create directory
+  # Create config directory
   - mkdir -p /opt/qubic-bob
 
   # Create .env config
@@ -48,8 +48,6 @@ runcmd:
         ports:
           - "21842:21842"
           - "40420:40420"
-        volumes:
-          - /opt/qubic-bob/data:/data
         env_file:
           - .env
         environment:
