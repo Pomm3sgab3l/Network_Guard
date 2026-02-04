@@ -1,0 +1,61 @@
+#cloud-config
+#
+# Qubic Lite Node - Cloud-Init
+# https://github.com/qubic/core-lite
+#
+# Requirements: 64GB RAM, AVX2 CPU, 500GB SSD
+#
+# IMPORTANT: Replace YOUR_SEED and YOUR_ALIAS before deploying!
+#
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - ufw
+
+runcmd:
+  # Install Docker
+  - curl -fsSL https://get.docker.com | sh
+
+  # Configure firewall
+  - ufw allow 22/tcp
+  - ufw allow 21841/tcp
+  - ufw allow 41841/tcp
+  - ufw --force enable
+
+  # Create directory
+  - mkdir -p /opt/qubic-lite
+
+  # Create docker-compose.yml
+  - |
+    cat > /opt/qubic-lite/docker-compose.yml << 'EOF'
+    services:
+      qubic-lite:
+        image: qubiccore/lite:latest
+        container_name: qubic-lite
+        restart: unless-stopped
+        ports:
+          - "21841:21841"
+          - "41841:41841"
+        volumes:
+          - /opt/qubic-lite/data:/qubic
+        environment:
+          - QUBIC_MODE=normal
+          - QUBIC_OPERATOR_SEED=YOUR_SEED
+          - QUBIC_OPERATOR_ALIAS=YOUR_ALIAS
+          - QUBIC_LOG_LEVEL=INFO
+
+      watchtower:
+        image: containrrr/watchtower
+        container_name: watchtower
+        restart: unless-stopped
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+        command: --interval 300 qubic-lite
+    EOF
+
+  # Start containers
+  - cd /opt/qubic-lite && docker compose up -d
