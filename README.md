@@ -113,9 +113,10 @@ cd /opt/qubic-lite
 ./lite.sh stop      # stop node
 ./lite.sh start     # start node
 ./lite.sh restart   # restart node
-./lite.sh update    # rebuild + restart
 ./lite.sh uninstall # remove node
 ```
+
+> **Auto-Update:** Watchtower automatically updates the node when new versions are released.
 
 ## Ports
 

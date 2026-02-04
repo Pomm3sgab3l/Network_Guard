@@ -15,30 +15,19 @@
 #   stop          Stop container
 #   start         Start container
 #   restart       Restart container
-#   update        Rebuild and restart
 #
 
 set -e
 
 # --- Config ---
 CONTAINER_NAME="qubic-lite"
-IMAGE_NAME="qubic-lite-node"
-DOCKERHUB_IMAGE="qubiccore/lite"
+DOCKER_IMAGE="qubiccore/lite"
 DATA_DIR="/opt/qubic-lite"
-REPO_URL="https://github.com/qubic/core-lite.git"
 PEERS_API="https://api.qubic.global/random-peers?service=bobNode&litePeers=8"
 
 # Default ports
 P2P_PORT=21841
 HTTP_PORT=41841
-
-# Build options
-TESTNET=false
-ENABLE_AVX512=false
-MAX_PROCESSORS=""
-TARGET_EPOCH=""
-SKIP_EPOCH=false
-USE_DOCKERHUB=false
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -71,16 +60,10 @@ print_usage() {
     echo "  stop          Stop container"
     echo "  start         Start container"
     echo "  restart       Restart container"
-    echo "  update        Rebuild image and restart"
     echo ""
     echo "Install options:"
     echo "  --seed <seed>         Operator seed [REQUIRED]"
     echo "  --alias <alias>       Operator alias [REQUIRED]"
-    echo "  --dockerhub           Use pre-built Docker Hub image (beta)"
-    echo "  --avx512              Enable AVX-512 support (build only)"
-    echo "  --processors <N>      Max processors (build only)"
-    echo "  --epoch <N>           Build for specific epoch (build only)"
-    echo "  --no-epoch            Skip epoch data download"
     echo "  --peers <ip1,ip2>     Peer IPs (auto-fetched if omitted)"
     echo "  --p2p-port <port>     P2P port (default: 21841)"
     echo "  --http-port <port>    HTTP port (default: 41841)"
@@ -88,9 +71,8 @@ print_usage() {
     echo ""
     echo "Examples:"
     echo "  $0 install --seed myseed --alias mynode"
-    echo "  $0 install --seed myseed --alias mynode --dockerhub"
     echo "  $0 logs"
-    echo "  $0 update"
+    echo "  $0 status"
 }
 
 print_security_warning() {
@@ -118,11 +100,9 @@ check_docker() {
 check_system() {
     log_info "Checking system..."
 
-    local ram_kb ram_gb min_ram
+    local ram_kb ram_gb min_ram=64
     ram_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
     ram_gb=$((ram_kb / 1024 / 1024))
-
-    [ "$TESTNET" = true ] && min_ram=14 || min_ram=64
 
     if [ "$ram_gb" -lt "$min_ram" ]; then
         log_warn "RAM: ${ram_gb}GB (recommended: ${min_ram}GB+)"
@@ -135,14 +115,6 @@ check_system() {
     else
         log_warn "AVX2: not detected (required for mainnet)"
     fi
-
-    if [ "$ENABLE_AVX512" = true ]; then
-        if grep -q avx512 /proc/cpuinfo; then
-            log_ok "AVX-512: supported"
-        else
-            log_warn "AVX-512: not detected but requested"
-        fi
-    fi
 }
 
 container_exists() {
@@ -153,7 +125,6 @@ container_running() {
     docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
 }
 
-# Fetch peers from API
 fetch_peers() {
     local max_retries=3
     local attempt=1
@@ -167,7 +138,6 @@ fetch_peers() {
         response=$(curl -sf --max-time 15 "$PEERS_API" 2>/dev/null || true)
 
         if [ -n "$response" ]; then
-            # Extract litePeers from JSON
             local peers
             peers=$(echo "$response" | grep -oP '"litePeers"\s*:\s*\[[^\]]*\]' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
 
@@ -188,134 +158,6 @@ fetch_peers() {
     return 1
 }
 
-# Detect latest epoch from storage
-detect_epoch() {
-    if [ "$TESTNET" = true ] || [ "$SKIP_EPOCH" = true ]; then
-        return
-    fi
-
-    if [ -n "$TARGET_EPOCH" ]; then
-        DETECTED_EPOCH="$TARGET_EPOCH"
-        return
-    fi
-
-    log_info "Detecting latest epoch..."
-    local storage_url="https://storage.qubic.li/network"
-    DETECTED_EPOCH=$(curl -sf "${storage_url}/" | grep -o 'ep[0-9]*-full\.zip' | grep -o '[0-9]*' | sort -n | tail -1 || true)
-
-    if [ -n "$DETECTED_EPOCH" ]; then
-        log_ok "Detected epoch: ${DETECTED_EPOCH}"
-    else
-        log_warn "Could not detect epoch, using HEAD"
-    fi
-}
-
-# Checkout source for specific epoch
-checkout_epoch() {
-    local src_dir="$1"
-    local epoch="$2"
-
-    if [ -z "$epoch" ]; then
-        log_info "Building from latest source (HEAD)"
-        return
-    fi
-
-    local settings_file="${src_dir}/src/public_settings.h"
-    local head_epoch
-    head_epoch=$(grep -oP '#define\s+EPOCH\s+\K[0-9]+' "$settings_file" 2>/dev/null || true)
-
-    if [ "$head_epoch" = "$epoch" ]; then
-        log_ok "Source already at epoch ${epoch}"
-        return
-    fi
-
-    log_info "Searching for epoch ${epoch} in git history..."
-
-    local commits target_commit=""
-    commits=$(cd "$src_dir" && git log --all --format="%H" -100 -- src/public_settings.h 2>/dev/null || true)
-
-    for c in $commits; do
-        local ep
-        ep=$(cd "$src_dir" && git show "${c}:src/public_settings.h" 2>/dev/null | grep -oP '#define\s+EPOCH\s+\K[0-9]+' || true)
-        if [ "$ep" = "$epoch" ]; then
-            target_commit="$c"
-            break
-        fi
-    done
-
-    if [ -z "$target_commit" ]; then
-        log_warn "Could not find epoch ${epoch}, using HEAD"
-        return
-    fi
-
-    log_info "Checking out ${target_commit:0:8} for epoch ${epoch}..."
-    cd "$src_dir" && git checkout "$target_commit" --quiet
-    log_ok "Checked out epoch ${epoch}"
-}
-
-# Patch max processors in source
-patch_processors() {
-    local src_dir="$1"
-    local max_procs="$2"
-
-    if [ -z "$max_procs" ]; then
-        return
-    fi
-
-    local settings_file="${src_dir}/src/public_settings.h"
-    if [ -f "$settings_file" ]; then
-        sed -i "s/#define MAX_NUMBER_OF_PROCESSORS [0-9]*/#define MAX_NUMBER_OF_PROCESSORS ${max_procs}/g" "$settings_file"
-        log_ok "Patched MAX_PROCESSORS to ${max_procs}"
-    fi
-}
-
-# Download epoch data
-download_epoch_data() {
-    if [ "$TESTNET" = true ] || [ "$SKIP_EPOCH" = true ]; then
-        return
-    fi
-
-    if [ -z "$DETECTED_EPOCH" ]; then
-        return
-    fi
-
-    # Ensure unzip is available
-    if ! command -v unzip &> /dev/null; then
-        apt-get update -qq && apt-get install -y -qq unzip
-    fi
-
-    local zip_file="ep${DETECTED_EPOCH}-full.zip"
-    local zip_url="https://storage.qubic.li/network/${DETECTED_EPOCH}/${zip_file}"
-
-    log_info "Downloading epoch ${DETECTED_EPOCH} data..."
-
-    if wget -q --show-progress -O "${DATA_DIR}/data/${zip_file}" "${zip_url}"; then
-        log_info "Extracting..."
-        unzip -o -q "${DATA_DIR}/data/${zip_file}" -d "${DATA_DIR}/data"
-        rm -f "${DATA_DIR}/data/${zip_file}"
-        log_ok "Epoch data ready"
-    else
-        log_warn "Could not download epoch data"
-        rm -f "${DATA_DIR}/data/${zip_file}"
-    fi
-}
-
-# Build docker command for compose
-build_docker_command() {
-    local cmd="command: [\"--operator-seed\", \"${OPERATOR_SEED}\", \"--operator-alias\", \"${OPERATOR_ALIAS}\""
-
-    if [ "$TESTNET" = true ]; then
-        cmd="${cmd}, \"--security-tick\", \"32\", \"--ticking-delay\", \"1000\""
-    fi
-
-    if [ -n "$PEER_LIST" ]; then
-        cmd="${cmd}, \"--peers\", \"${PEER_LIST}\""
-    fi
-
-    cmd="${cmd}]"
-    echo "$cmd"
-}
-
 do_install() {
     log_info "Installing Lite node..."
 
@@ -333,11 +175,12 @@ do_install() {
         exit 1
     fi
 
-    # Stop existing container
+    # Stop existing containers
     if container_exists; then
         log_info "Removing existing container..."
         docker rm -f "$CONTAINER_NAME" &>/dev/null || true
     fi
+    docker rm -f watchtower &>/dev/null || true
 
     # Create directories
     mkdir -p "${DATA_DIR}/data"
@@ -356,85 +199,16 @@ do_install() {
         fi
     fi
 
-    # Build or pull image
-    local final_image
-    if [ "$USE_DOCKERHUB" = true ]; then
-        # Quick install: pull from Docker Hub
-        log_info "Pulling image from Docker Hub..."
-        docker pull "${DOCKERHUB_IMAGE}"
-        final_image="${DOCKERHUB_IMAGE}"
-        log_ok "Image ready"
-    else
-        # Build from source
-        detect_epoch
-        download_epoch_data
-
-        log_info "Cloning qubic-core-lite..."
-        if [ -d "${DATA_DIR}/qubic-core-lite" ]; then
-            cd "${DATA_DIR}/qubic-core-lite"
-            git checkout main --quiet 2>/dev/null || true
-            git pull --quiet
-        else
-            git clone --quiet "${REPO_URL}" "${DATA_DIR}/qubic-core-lite"
-        fi
-
-        checkout_epoch "${DATA_DIR}/qubic-core-lite" "$DETECTED_EPOCH"
-        patch_processors "${DATA_DIR}/qubic-core-lite" "$MAX_PROCESSORS"
-
-        log_info "Building Docker image (this takes a while)..."
-
-        local avx_flag="OFF"
-        local avx_cmake=""
-        if [ "$ENABLE_AVX512" = true ]; then
-            avx_flag="ON"
-            avx_cmake='RUN echo "add_compile_options(-mavx512vbmi2)" > /app/avx512.cmake'
-        fi
-
-        local avx_include=""
-        [ "$ENABLE_AVX512" = true ] && avx_include="-DCMAKE_PROJECT_INCLUDE=/app/avx512.cmake"
-
-        printf "data/\nqubic-core-lite/.git/\n" > "${DATA_DIR}/.dockerignore"
-
-        cat > "${DATA_DIR}/Dockerfile" <<EOF
-FROM ubuntu:24.04 AS builder
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y \\
-    build-essential clang cmake nasm git g++ \\
-    libc++-dev libc++abi-dev libjsoncpp-dev uuid-dev zlib1g-dev \\
-    libstdc++-12-dev libfmt-dev \\
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
-COPY qubic-core-lite/ .
-${avx_cmake}
-WORKDIR /app/build
-RUN cmake .. \\
-    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \\
-    -DBUILD_TESTS=OFF -DBUILD_BINARY=ON \\
-    -DCMAKE_BUILD_TYPE=Release -DENABLE_AVX512=${avx_flag} \\
-    ${avx_include} \\
-    && cmake --build . -- -j\$(nproc)
-
-FROM ubuntu:24.04
-RUN apt-get update && apt-get install -y \\
-    libc++1 libc++abi1 libjsoncpp25 libfmt9 \\
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /qubic
-COPY --from=builder /app/build/src/Qubic .
-EXPOSE ${P2P_PORT} ${HTTP_PORT}
-ENTRYPOINT ["/qubic/Qubic"]
-EOF
-
-        docker build -t "$IMAGE_NAME" "${DATA_DIR}"
-        final_image="${IMAGE_NAME}"
-    fi
+    # Pull image
+    log_info "Pulling image from Docker Hub..."
+    docker pull "${DOCKER_IMAGE}:latest"
+    log_ok "Image ready"
 
     # Create docker-compose.yml
-    if [ "$USE_DOCKERHUB" = true ]; then
-        # Docker Hub image uses environment variables
-        cat > "${DATA_DIR}/docker-compose.yml" <<EOF
+    cat > "${DATA_DIR}/docker-compose.yml" <<EOF
 services:
   qubic-lite:
-    image: ${final_image}
+    image: ${DOCKER_IMAGE}:latest
     container_name: ${CONTAINER_NAME}
     restart: unless-stopped
     ports:
@@ -457,44 +231,21 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     command: --interval 300 ${CONTAINER_NAME}
 EOF
-    else
-        # Build from source uses command arguments
-        local docker_cmd
-        docker_cmd=$(build_docker_command)
 
-        cat > "${DATA_DIR}/docker-compose.yml" <<EOF
-services:
-  qubic-lite:
-    image: ${final_image}
-    container_name: ${CONTAINER_NAME}
-    restart: unless-stopped
-    working_dir: /qubic/data
-    ports:
-      - "${P2P_PORT}:${P2P_PORT}"
-      - "${HTTP_PORT}:${HTTP_PORT}"
-    volumes:
-      - ${DATA_DIR}/data:/qubic/data
-    ${docker_cmd}
-EOF
-    fi
-
-    # Start container
-    log_info "Starting container..."
+    # Start containers
+    log_info "Starting containers..."
     cd "${DATA_DIR}" && docker compose up -d
 
-    local mode_label="build"
-    [ "$USE_DOCKERHUB" = true ] && mode_label="dockerhub"
-
-    log_ok "Lite node started! (${mode_label})"
+    log_ok "Lite node started!"
     echo ""
-    echo "  Container:  $CONTAINER_NAME"
-    echo "  Data:       ${DATA_DIR}/data"
-    echo "  P2P:        port ${P2P_PORT}"
-    echo "  HTTP:       http://localhost:${HTTP_PORT}"
+    echo "  Container:   $CONTAINER_NAME"
+    echo "  Data:        ${DATA_DIR}/data"
+    echo "  P2P:         port ${P2P_PORT}"
+    echo "  HTTP:        http://localhost:${HTTP_PORT}"
+    echo "  Auto-Update: enabled (Watchtower)"
     echo ""
-    echo "  View logs:  ./lite.sh logs"
-    echo "  Status:     ./lite.sh status"
-    echo "  Update:     ./lite.sh update"
+    echo "  View logs:   ./lite.sh logs"
+    echo "  Status:      ./lite.sh status"
     echo ""
 
     # Remove original script if not in DATA_DIR
@@ -511,19 +262,14 @@ EOF
 do_uninstall() {
     log_info "Uninstalling Lite node..."
 
-    # Stop container
+    # Stop containers
     if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
         docker compose -f "${DATA_DIR}/docker-compose.yml" down -v 2>/dev/null || true
-        log_ok "Container stopped"
+        log_ok "Containers stopped"
     elif container_exists; then
         docker rm -f "$CONTAINER_NAME" &>/dev/null || true
-        log_ok "Container removed"
-    fi
-
-    # Remove image
-    if docker image inspect "$IMAGE_NAME" &>/dev/null; then
-        docker rmi "$IMAGE_NAME" 2>/dev/null || true
-        log_ok "Image removed"
+        docker rm -f watchtower &>/dev/null || true
+        log_ok "Containers removed"
     fi
 
     # Ask before removing data
@@ -553,6 +299,7 @@ do_status() {
         log_ok "Lite node is running"
         echo ""
         docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        docker ps --filter "name=watchtower" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || true
         echo ""
         log_info "Checking HTTP endpoint..."
         local response
@@ -590,7 +337,6 @@ do_info() {
     echo -e "${GREEN}=== Lite Node Info ===${NC}"
     echo ""
 
-    # Parse and display key info
     local epoch tick alias operator version uptime
     epoch=$(echo "$response" | grep -oP '"epoch":\K[0-9]+' | head -1)
     tick=$(echo "$response" | grep -oP '"tick":\K[0-9]+')
@@ -661,32 +407,6 @@ do_restart() {
     fi
 }
 
-do_update() {
-    log_info "Updating Lite node..."
-
-    if [ ! -d "${DATA_DIR}/qubic-core-lite" ]; then
-        log_error "Source not found. Run: $0 install"
-        return 1
-    fi
-
-    # Update source
-    log_info "Pulling latest source..."
-    cd "${DATA_DIR}/qubic-core-lite"
-    git checkout main --quiet 2>/dev/null || true
-    git pull --quiet
-
-    # Rebuild image
-    log_info "Rebuilding Docker image..."
-    docker build -t "$IMAGE_NAME" "${DATA_DIR}"
-
-    # Restart container
-    if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
-        cd "${DATA_DIR}" && docker compose up -d
-    fi
-
-    log_ok "Update complete"
-}
-
 interactive_install() {
     echo ""
     echo "=== Lite Node Installer ==="
@@ -705,11 +425,6 @@ interactive_install() {
         read -rp "Operator alias: " OPERATOR_ALIAS
         [ -z "$OPERATOR_ALIAS" ] && echo "  Alias is required."
     done
-
-    # Max processors
-    echo ""
-    read -rp "Max processors (Enter for default=8): " input_procs
-    [ -n "$input_procs" ] && MAX_PROCESSORS="$input_procs"
 
     echo ""
     do_install
@@ -740,32 +455,28 @@ interactive_menu() {
 
         echo -e "         ${CYAN}┌────────────────────────────────────────┐${NC}"
         echo -e "         ${CYAN}│${NC} ${GREEN}INSTALL${NC}                                ${CYAN}│${NC}"
-        echo -e "         ${CYAN}│${NC}   1) docker        build from source   ${CYAN}│${NC}"
-        echo -e "         ${CYAN}│${NC}   2) beta          quick install (v1)  ${CYAN}│${NC}"
-        echo -e "         ${CYAN}│${NC}   3) uninstall     remove lite node    ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   1) install       setup lite node     ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   2) uninstall     remove lite node    ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                 ${CYAN}│${NC}"
-        echo -e "         ${CYAN}│${NC}   4) status    5) info      6) logs    ${CYAN}│${NC}"
-        echo -e "         ${CYAN}│${NC}   7) stop      8) start     9) restart ${CYAN}│${NC}"
-        echo -e "         ${CYAN}│${NC}  10) update                            ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   3) status    4) info      5) logs    ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   6) stop      7) start     8) restart ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   0) exit                              ${CYAN}│${NC}"
         echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
         echo ""
-        read -rp "         Select [0-10]: " choice
+        read -rp "         Select [0-8]: " choice
 
         case "$choice" in
             0) echo ""; log_info "Goodbye!"; exit 0 ;;
             1) interactive_install || true ;;
-            2) USE_DOCKERHUB=true; interactive_install || true ;;
-            3) do_uninstall || true ;;
-            4) do_status || true ;;
-            5) do_info || true ;;
-            6) do_logs || true ;;
-            7) do_stop || true ;;
-            8) do_start || true ;;
-            9) do_restart || true ;;
-            10) do_update || true ;;
+            2) do_uninstall || true ;;
+            3) do_status || true ;;
+            4) do_info || true ;;
+            5) do_logs || true ;;
+            6) do_stop || true ;;
+            7) do_start || true ;;
+            8) do_restart || true ;;
             *) log_error "Invalid choice" ;;
         esac
 
@@ -779,7 +490,6 @@ interactive_menu() {
 OPERATOR_SEED=""
 OPERATOR_ALIAS=""
 PEER_LIST=""
-DETECTED_EPOCH=""
 
 # Parse arguments
 if [ $# -eq 0 ]; then
@@ -795,11 +505,6 @@ while [ $# -gt 0 ]; do
         --seed)        OPERATOR_SEED="$2"; shift 2 ;;
         --alias)       OPERATOR_ALIAS="$2"; shift 2 ;;
         --peers)       PEER_LIST="$2"; shift 2 ;;
-        --dockerhub)   USE_DOCKERHUB=true; shift ;;
-        --avx512)      ENABLE_AVX512=true; shift ;;
-        --processors)  MAX_PROCESSORS="$2"; shift 2 ;;
-        --epoch)       TARGET_EPOCH="$2"; shift 2 ;;
-        --no-epoch)    SKIP_EPOCH=true; shift ;;
         --p2p-port)    P2P_PORT="$2"; shift 2 ;;
         --http-port)   HTTP_PORT="$2"; shift 2 ;;
         --data-dir)    DATA_DIR="$2"; shift 2 ;;
@@ -817,7 +522,6 @@ case "$COMMAND" in
     stop)       do_stop ;;
     start)      do_start ;;
     restart)    do_restart ;;
-    update)     do_update ;;
     help|--help|-h) print_usage ;;
     *)          log_error "Unknown command: $COMMAND"; print_usage; exit 1 ;;
 esac
