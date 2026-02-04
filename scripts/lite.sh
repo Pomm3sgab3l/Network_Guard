@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Lite Node Installer - Docker-based setup
-# https://github.com/hackerby888/qubic-core-lite
+# https://github.com/qubic/core-lite
 #
 # Usage:
 #   Interactive:  ./lite.sh
@@ -25,7 +25,7 @@ CONTAINER_NAME="qubic-lite"
 IMAGE_NAME="qubic-lite-node"
 DOCKERHUB_IMAGE="qubiccore/lite"
 DATA_DIR="/opt/qubic-lite"
-REPO_URL="https://github.com/hackerby888/qubic-core-lite.git"
+REPO_URL="https://github.com/qubic/core-lite.git"
 PEERS_API="https://api.qubic.global/random-peers?service=bobNode&litePeers=8"
 
 # Default ports
@@ -122,7 +122,7 @@ check_system() {
     ram_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
     ram_gb=$((ram_kb / 1024 / 1024))
 
-    [ "$TESTNET" = true ] && min_ram=14 || min_ram=60
+    [ "$TESTNET" = true ] && min_ram=14 || min_ram=64
 
     if [ "$ram_gb" -lt "$min_ram" ]; then
         log_warn "RAM: ${ram_gb}GB (recommended: ${min_ram}GB+)"

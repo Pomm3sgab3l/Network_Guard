@@ -1,6 +1,6 @@
 # Network Guard
 
-Setup scripts for running [Bob Node](https://github.com/qubic/core-bob) and [Lite Node](https://github.com/hackerby888/qubic-core-lite) on the Qubic network.
+Setup scripts for running [Bob Node](https://github.com/qubic/core-bob) and [Lite Node](https://github.com/qubic/core-lite) on the Qubic network.
 
 ---
 
@@ -152,5 +152,5 @@ sudo ufw enable
 ## Links
 
 - Bob Node: [qubic/core-bob](https://github.com/qubic/core-bob) | [Docker Hub](https://hub.docker.com/r/qubiccore/bob)
-- Lite Node: [hackerby888/qubic-core-lite](https://github.com/hackerby888/qubic-core-lite)
+- Lite Node: [qubic/core-lite](https://github.com/qubic/core-lite) | [Docker Hub](https://hub.docker.com/r/qubiccore/lite)
 - Qubic: [Website](https://qubic.org) | [Network Dashboard](https://app.qubic.li/network/live)
