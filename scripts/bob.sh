@@ -174,6 +174,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command: --interval 300 ${CONTAINER_NAME}
+
+volumes:
+  qubic-bob-redis:
+  qubic-bob-kvrocks:
+  qubic-bob-data:
 EOF
 
     # Start containers
