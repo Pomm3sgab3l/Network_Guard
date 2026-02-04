@@ -149,6 +149,172 @@ sudo ufw enable
 
 ---
 
+# Cloud-Init Deployment
+
+Deploy Qubic nodes on any cloud provider with a single command using [cloud-init](https://cloud-init.io/).
+
+Supported providers: **Hetzner**, **Netcup**, **Hostkey**, **OVH**, **AWS**, **DigitalOcean**, **Google Cloud**, **Azure**
+
+> **Note:** Replace `YOUR_SEED` and `YOUR_ALIAS` with your actual values before deploying.
+
+## Lite Node (cloud-init.yml)
+
+```yaml
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - ufw
+
+runcmd:
+  # Install Docker
+  - curl -fsSL https://get.docker.com | sh
+
+  # Configure firewall
+  - ufw allow 22/tcp
+  - ufw allow 21841/tcp
+  - ufw allow 41841/tcp
+  - ufw --force enable
+
+  # Create directory
+  - mkdir -p /opt/qubic-lite
+
+  # Create docker-compose.yml
+  - |
+    cat > /opt/qubic-lite/docker-compose.yml << 'EOF'
+    services:
+      qubic-lite:
+        image: qubiccore/lite:latest
+        container_name: qubic-lite
+        restart: unless-stopped
+        ports:
+          - "21841:21841"
+          - "41841:41841"
+        volumes:
+          - /opt/qubic-lite/data:/qubic
+        environment:
+          - QUBIC_MODE=normal
+          - QUBIC_OPERATOR_SEED=YOUR_SEED
+          - QUBIC_OPERATOR_ALIAS=YOUR_ALIAS
+          - QUBIC_LOG_LEVEL=INFO
+
+      watchtower:
+        image: containrrr/watchtower
+        container_name: watchtower
+        restart: unless-stopped
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+        command: --interval 300 qubic-lite
+    EOF
+
+  # Start containers
+  - cd /opt/qubic-lite && docker compose up -d
+```
+
+## Bob Node (cloud-init.yml)
+
+```yaml
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - ufw
+
+runcmd:
+  # Install Docker
+  - curl -fsSL https://get.docker.com | sh
+
+  # Configure firewall
+  - ufw allow 22/tcp
+  - ufw allow 21842/tcp
+  - ufw allow 40420/tcp
+  - ufw --force enable
+
+  # Create directory
+  - mkdir -p /opt/qubic-bob
+
+  # Fetch peers and create config
+  - |
+    PEERS=$(curl -sf "https://api.qubic.global/random-peers?service=bobNode&litePeers=6" | grep -oE '"bobPeers":\[[^]]*\]' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -6 | while read ip; do echo -n "\"BM:${ip}:21841:0-0-0-0\","; done | sed 's/,$//')
+    cat > /opt/qubic-bob/bob.json << EOF
+    {
+      "p2p-node": ["BM:0.0.0.0:21841:0-0-0-0",${PEERS}],
+      "request-cycle-ms": 100,
+      "log-level": "info",
+      "run-server": true,
+      "server-port": 21842,
+      "rpc-port": 40420,
+      "arbitrator-identity": "AFZPUAIYVPNUYGJRQVLUKOPPVLHAZQTGLYAAUUNBXFTVTAMSBKQBLEIEPCVJ",
+      "tick-storage-mode": "kvrocks",
+      "kvrocks-url": "tcp://127.0.0.1:6666",
+      "tx-storage-mode": "kvrocks",
+      "node-seed": "YOUR_SEED",
+      "node-alias": "YOUR_ALIAS"
+    }
+    EOF
+
+  # Create docker-compose.yml
+  - |
+    cat > /opt/qubic-bob/docker-compose.yml << 'EOF'
+    services:
+      qubic-bob:
+        image: qubiccore/bob:latest
+        container_name: qubic-bob
+        restart: unless-stopped
+        ports:
+          - "21842:21842"
+          - "40420:40420"
+        volumes:
+          - /opt/qubic-bob/bob.json:/app/bob.json:ro
+          - /opt/qubic-bob/data:/data
+
+      watchtower:
+        image: containrrr/watchtower
+        container_name: watchtower
+        restart: unless-stopped
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+        command: --interval 300 qubic-bob
+    EOF
+
+  # Start containers
+  - cd /opt/qubic-bob && docker compose up -d
+```
+
+## Provider Commands
+
+### Hetzner Cloud
+
+```bash
+# Lite Node (cx52 - 64GB RAM)
+hcloud server create --name qubic-lite --type cx52 --image ubuntu-24.04 --user-data-from-file cloud-init.yml
+
+# Bob Node (cx22 - 16GB RAM)
+hcloud server create --name qubic-bob --type cx22 --image ubuntu-24.04 --user-data-from-file cloud-init.yml
+```
+
+### Netcup / Hostkey
+
+Upload the `cloud-init.yml` file in the server configuration panel during VM creation.
+
+### DigitalOcean
+
+```bash
+# Lite Node
+doctl compute droplet create qubic-lite --size m-8vcpu-64gb --image ubuntu-24-04-x64 --user-data-file cloud-init.yml
+
+# Bob Node
+doctl compute droplet create qubic-bob --size s-4vcpu-16gb --image ubuntu-24-04-x64 --user-data-file cloud-init.yml
+```
+
+---
+
 ## Links
 
 - Bob Node: [qubic/core-bob](https://github.com/qubic/core-bob) | [Docker Hub](https://hub.docker.com/r/qubiccore/bob)

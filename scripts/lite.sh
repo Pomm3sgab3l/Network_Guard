@@ -441,11 +441,21 @@ services:
       - "${P2P_PORT}:21841"
       - "${HTTP_PORT}:41841"
     volumes:
-      - ${DATA_DIR}/data:/app/data
+      - ${DATA_DIR}/data:/qubic
     environment:
+      - QUBIC_MODE=normal
       - QUBIC_OPERATOR_SEED=${OPERATOR_SEED}
       - QUBIC_OPERATOR_ALIAS=${OPERATOR_ALIAS}
       - QUBIC_PEERS=${PEER_LIST}
+      - QUBIC_LOG_LEVEL=INFO
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 300 ${CONTAINER_NAME}
 EOF
     else
         # Build from source uses command arguments
