@@ -162,11 +162,6 @@ services:
       - "${API_PORT}:40420"
     env_file:
       - .env
-    environment:
-      - LOG_LEVEL=info
-      - RUN_SERVER=true
-      - SERVER_PORT=21842
-      - RPC_PORT=40420
 
   watchtower:
     image: containrrr/watchtower
