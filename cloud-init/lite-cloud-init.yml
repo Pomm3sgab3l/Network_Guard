@@ -26,8 +26,16 @@ runcmd:
   - ufw allow 41841/tcp
   - ufw --force enable
 
-  # Create directory
+  # Create config directory
   - mkdir -p /opt/qubic-lite
+
+  # Create .env config
+  - |
+    cat > /opt/qubic-lite/.env << 'EOF'
+    QUBIC_OPERATOR_SEED=YOUR_SEED
+    QUBIC_OPERATOR_ALIAS=YOUR_ALIAS
+    EOF
+  - chmod 600 /opt/qubic-lite/.env
 
   # Create docker-compose.yml
   - |
@@ -40,13 +48,10 @@ runcmd:
         ports:
           - "21841:21841"
           - "41841:41841"
+        env_file:
+          - .env
         volumes:
-          - /opt/qubic-lite/data:/qubic
-        environment:
-          - QUBIC_MODE=normal
-          - QUBIC_OPERATOR_SEED=YOUR_SEED
-          - QUBIC_OPERATOR_ALIAS=YOUR_ALIAS
-          - QUBIC_LOG_LEVEL=INFO
+          - qubic-lite-data:/qubic
 
       watchtower:
         image: containrrr/watchtower
@@ -55,6 +60,9 @@ runcmd:
         volumes:
           - /var/run/docker.sock:/var/run/docker.sock
         command: --interval 300 qubic-lite
+
+    volumes:
+      qubic-lite-data:
     EOF
 
   # Start containers

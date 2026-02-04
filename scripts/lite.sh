@@ -147,8 +147,8 @@ do_install() {
     fi
     docker rm -f watchtower &>/dev/null || true
 
-    # Create directories
-    mkdir -p "${DATA_DIR}/data"
+    # Create directory
+    mkdir -p "${DATA_DIR}"
 
     # Copy script for management
     cp "$0" "${DATA_DIR}/lite.sh" 2>/dev/null || true
@@ -158,6 +158,14 @@ do_install() {
     log_info "Pulling image from Docker Hub..."
     docker pull "${DOCKER_IMAGE}:latest"
     log_ok "Image ready"
+
+    # Create .env file with sensitive data
+    cat > "${DATA_DIR}/.env" <<EOF
+QUBIC_OPERATOR_SEED=${OPERATOR_SEED}
+QUBIC_OPERATOR_ALIAS=${OPERATOR_ALIAS}
+EOF
+    chmod 600 "${DATA_DIR}/.env"
+    log_ok "Config: ${DATA_DIR}/.env"
 
     # Create docker-compose.yml
     cat > "${DATA_DIR}/docker-compose.yml" <<EOF
@@ -169,13 +177,10 @@ services:
     ports:
       - "${P2P_PORT}:21841"
       - "${HTTP_PORT}:41841"
+    env_file:
+      - .env
     volumes:
-      - ${DATA_DIR}/data:/qubic
-    environment:
-      - QUBIC_MODE=normal
-      - QUBIC_OPERATOR_SEED=${OPERATOR_SEED}
-      - QUBIC_OPERATOR_ALIAS=${OPERATOR_ALIAS}
-      - QUBIC_LOG_LEVEL=INFO
+      - qubic-lite-data:/qubic
 
   watchtower:
     image: containrrr/watchtower
@@ -184,6 +189,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command: --interval 300 ${CONTAINER_NAME}
+
+volumes:
+  qubic-lite-data:
 EOF
 
     # Start containers
@@ -193,7 +201,7 @@ EOF
     log_ok "Lite node started!"
     echo ""
     echo "  Container:   $CONTAINER_NAME"
-    echo "  Data:        ${DATA_DIR}/data"
+    echo "  Config:      ${DATA_DIR}/.env"
     echo "  P2P:         port ${P2P_PORT}"
     echo "  HTTP:        http://localhost:${HTTP_PORT}"
     echo "  Auto-Update: enabled (Watchtower)"
