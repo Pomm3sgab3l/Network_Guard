@@ -142,15 +142,7 @@ do_install() {
     docker pull "${DOCKER_IMAGE}:latest"
     log_ok "Image ready"
 
-    # Create .env file (user editable)
-    cat > "${DATA_DIR}/.env" <<EOF
-NODE_SEED=${NODE_SEED}
-NODE_ALIAS=${NODE_ALIAS}
-EOF
-    chmod 600 "${DATA_DIR}/.env"
-    log_ok "Config: ${DATA_DIR}/.env"
-
-    # Generate bob.json from .env
+    # Create bob.json config
     cat > "${DATA_DIR}/bob.json" <<EOF
 {
   "log-level": "info",
@@ -162,6 +154,7 @@ EOF
 }
 EOF
     chmod 600 "${DATA_DIR}/bob.json"
+    log_ok "Config: ${DATA_DIR}/bob.json"
 
     # Create docker-compose.yml
     cat > "${DATA_DIR}/docker-compose.yml" <<EOF
@@ -194,7 +187,7 @@ EOF
     echo ""
     echo "  Container:   $CONTAINER_NAME"
     echo "  Data:        ${DATA_DIR}/data"
-    echo "  Config:      ${DATA_DIR}/.env"
+    echo "  Config:      ${DATA_DIR}/bob.json"
     echo "  P2P:         port ${P2P_PORT}"
     echo "  API:         http://localhost:${API_PORT}"
     echo "  Auto-Update: enabled (Watchtower)"
