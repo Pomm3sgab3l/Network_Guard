@@ -495,8 +495,7 @@ EOF
         log_ok "Removed installer from download location"
     fi
 
-    log_info "Entering ${DATA_DIR}..."
-    cd "${DATA_DIR}" && exec bash
+    cd "${DATA_DIR}"
 }
 
 do_uninstall() {
@@ -724,6 +723,7 @@ EOF
 }
 
 interactive_menu() {
+    set +e  # Disable exit on error for interactive mode
     while true; do
         echo ""
         print_logo
@@ -746,16 +746,16 @@ interactive_menu() {
 
         case "$choice" in
             0) echo ""; log_info "Goodbye!"; exit 0 ;;
-            1) interactive_install; return ;;
-            2) USE_DOCKERHUB=true; interactive_install; return ;;
-            3) do_uninstall; return ;;
-            4) do_status ;;
-            5) do_info ;;
-            6) do_logs ;;
-            7) do_stop ;;
-            8) do_start ;;
-            9) do_restart ;;
-            10) do_update ;;
+            1) interactive_install || true ;;
+            2) USE_DOCKERHUB=true; interactive_install || true ;;
+            3) do_uninstall || true ;;
+            4) do_status || true ;;
+            5) do_info || true ;;
+            6) do_logs || true ;;
+            7) do_stop || true ;;
+            8) do_start || true ;;
+            9) do_restart || true ;;
+            10) do_update || true ;;
             *) log_error "Invalid choice" ;;
         esac
 
