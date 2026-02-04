@@ -29,16 +29,25 @@ runcmd:
   # Create directory
   - mkdir -p /opt/qubic-bob
 
-  # Create bob.json config
+  # Create .env file (edit this to change seed/alias)
   - |
-    cat > /opt/qubic-bob/bob.json << 'EOF'
+    cat > /opt/qubic-bob/.env << 'EOF'
+    NODE_SEED=YOUR_SEED
+    NODE_ALIAS=YOUR_ALIAS
+    EOF
+  - chmod 600 /opt/qubic-bob/.env
+
+  # Create bob.json from .env values
+  - |
+    source /opt/qubic-bob/.env
+    cat > /opt/qubic-bob/bob.json << EOF
     {
       "log-level": "info",
       "run-server": true,
       "server-port": 21842,
       "rpc-port": 40420,
-      "node-seed": "YOUR_SEED",
-      "node-alias": "YOUR_ALIAS"
+      "node-seed": "${NODE_SEED}",
+      "node-alias": "${NODE_ALIAS}"
     }
     EOF
   - chmod 600 /opt/qubic-bob/bob.json
