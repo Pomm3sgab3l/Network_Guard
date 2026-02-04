@@ -162,6 +162,10 @@ services:
       - "${API_PORT}:40420"
     env_file:
       - .env
+    volumes:
+      - qubic-bob-redis:/data/redis
+      - qubic-bob-kvrocks:/data/kvrocks
+      - qubic-bob-data:/data/bob
 
   watchtower:
     image: containrrr/watchtower
@@ -170,6 +174,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command: --interval 300 ${CONTAINER_NAME}
+
+volumes:
+  qubic-bob-redis:
+  qubic-bob-kvrocks:
+  qubic-bob-data:
 EOF
 
     # Start containers

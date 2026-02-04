@@ -50,6 +50,10 @@ runcmd:
           - "40420:40420"
         env_file:
           - .env
+        volumes:
+          - qubic-bob-redis:/data/redis
+          - qubic-bob-kvrocks:/data/kvrocks
+          - qubic-bob-data:/data/bob
 
       watchtower:
         image: containrrr/watchtower
@@ -58,6 +62,11 @@ runcmd:
         volumes:
           - /var/run/docker.sock:/var/run/docker.sock
         command: --interval 300 qubic-bob
+
+    volumes:
+      qubic-bob-redis:
+      qubic-bob-kvrocks:
+      qubic-bob-data:
     EOF
 
   # Start containers
