@@ -564,7 +564,7 @@ do_status() {
 do_info() {
     if ! container_running; then
         log_error "Lite node is not running"
-        exit 1
+        return 1
     fi
 
     log_info "Fetching node info..."
@@ -573,7 +573,7 @@ do_info() {
 
     if [ -z "$response" ]; then
         log_error "Could not fetch tick-info from port ${HTTP_PORT}"
-        exit 1
+        return 1
     fi
 
     echo ""
@@ -605,7 +605,7 @@ do_info() {
 do_logs() {
     if ! container_exists; then
         log_error "Container not found"
-        exit 1
+        return 1
     fi
     log_info "Showing logs (Ctrl+C to exit)..."
     docker logs -f "$CONTAINER_NAME"
@@ -634,7 +634,7 @@ do_start() {
         log_ok "Started"
     else
         log_error "Container not found. Run: $0 install"
-        exit 1
+        return 1
     fi
 }
 
@@ -647,7 +647,7 @@ do_restart() {
         log_ok "Restarted"
     else
         log_error "Container not found. Run: $0 install"
-        exit 1
+        return 1
     fi
 }
 
@@ -656,7 +656,7 @@ do_update() {
 
     if [ ! -d "${DATA_DIR}/qubic-core-lite" ]; then
         log_error "Source not found. Run: $0 install"
-        exit 1
+        return 1
     fi
 
     # Update source
