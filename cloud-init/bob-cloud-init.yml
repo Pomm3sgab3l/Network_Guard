@@ -33,7 +33,6 @@ runcmd:
   - |
     cat > /opt/qubic-bob/bob.json << 'EOF'
     {
-      "p2p-node": ["BM:0.0.0.0:21841:0-0-0-0"],
       "request-cycle-ms": 100,
       "log-level": "info",
       "run-server": true,

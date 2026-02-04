@@ -111,7 +111,6 @@ generate_config() {
 
     cat > "$config_file" <<EOF
 {
-  "p2p-node": ["BM:0.0.0.0:21841:0-0-0-0"],
   "request-cycle-ms": 100,
   "request-logging-cycle-ms": 30,
   "future-offset": 3,
