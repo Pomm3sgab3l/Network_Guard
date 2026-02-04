@@ -29,13 +29,19 @@ runcmd:
   # Create directory
   - mkdir -p /opt/qubic-bob
 
-  # Create .env file
+  # Create bob.json config
   - |
-    cat > /opt/qubic-bob/.env << 'EOF'
-    NODE_SEED=YOUR_SEED
-    NODE_ALIAS=YOUR_ALIAS
+    cat > /opt/qubic-bob/bob.json << 'EOF'
+    {
+      "log-level": "info",
+      "run-server": true,
+      "server-port": 21842,
+      "rpc-port": 40420,
+      "node-seed": "YOUR_SEED",
+      "node-alias": "YOUR_ALIAS"
+    }
     EOF
-  - chmod 600 /opt/qubic-bob/.env
+  - chmod 600 /opt/qubic-bob/bob.json
 
   # Create docker-compose.yml
   - |
@@ -49,9 +55,8 @@ runcmd:
           - "21842:21842"
           - "40420:40420"
         volumes:
+          - /opt/qubic-bob/bob.json:/app/bob.json:ro
           - /opt/qubic-bob/data:/data
-        env_file:
-          - .env
 
       watchtower:
         image: containrrr/watchtower
