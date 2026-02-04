@@ -724,36 +724,44 @@ EOF
 }
 
 interactive_menu() {
-    echo ""
-    print_logo
+    while true; do
+        echo ""
+        print_logo
 
-    echo -e "         ${CYAN}┌────────────────────────────────────────┐${NC}"
-    echo -e "         ${CYAN}│${NC} ${GREEN}INSTALL${NC}                                ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   1) docker        build from source   ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   2) beta          quick install (v1)  ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   3) uninstall     remove lite node    ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                 ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   4) status    5) info      6) logs    ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   7) stop      8) start     9) restart ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}  10) update                            ${CYAN}│${NC}"
-    echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
-    echo ""
-    read -rp "         Select [1-10]: " choice
+        echo -e "         ${CYAN}┌────────────────────────────────────────┐${NC}"
+        echo -e "         ${CYAN}│${NC} ${GREEN}INSTALL${NC}                                ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   1) docker        build from source   ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   2) beta          quick install (v1)  ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   3) uninstall     remove lite node    ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                 ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   4) status    5) info      6) logs    ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   7) stop      8) start     9) restart ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}  10) update                            ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   0) exit                              ${CYAN}│${NC}"
+        echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
+        echo ""
+        read -rp "         Select [0-10]: " choice
 
-    case "$choice" in
-        1) interactive_install ;;
-        2) USE_DOCKERHUB=true; interactive_install ;;
-        3) do_uninstall ;;
-        4) do_status ;;
-        5) do_info ;;
-        6) do_logs ;;
-        7) do_stop ;;
-        8) do_start ;;
-        9) do_restart ;;
-        10) do_update ;;
-        *) log_error "Invalid choice"; exit 1 ;;
-    esac
+        case "$choice" in
+            0) echo ""; log_info "Goodbye!"; exit 0 ;;
+            1) interactive_install; return ;;
+            2) USE_DOCKERHUB=true; interactive_install; return ;;
+            3) do_uninstall; return ;;
+            4) do_status ;;
+            5) do_info ;;
+            6) do_logs ;;
+            7) do_stop ;;
+            8) do_start ;;
+            9) do_restart ;;
+            10) do_update ;;
+            *) log_error "Invalid choice" ;;
+        esac
+
+        echo ""
+        read -rp "         Press Enter to continue..." _
+    done
 }
 
 # --- Main ---
