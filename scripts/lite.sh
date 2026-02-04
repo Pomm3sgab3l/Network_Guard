@@ -186,6 +186,8 @@ services:
     image: containrrr/watchtower
     container_name: watchtower
     restart: unless-stopped
+    environment:
+      DOCKER_API_VERSION: "1.44"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command: --interval 300 ${CONTAINER_NAME}
