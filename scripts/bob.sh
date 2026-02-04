@@ -142,19 +142,13 @@ do_install() {
     docker pull "${DOCKER_IMAGE}:latest"
     log_ok "Image ready"
 
-    # Create bob.json config
-    cat > "${DATA_DIR}/bob.json" <<EOF
-{
-  "log-level": "info",
-  "run-server": true,
-  "server-port": 21842,
-  "rpc-port": 40420,
-  "node-seed": "${NODE_SEED}",
-  "node-alias": "${NODE_ALIAS}"
-}
+    # Create .env file with sensitive data
+    cat > "${DATA_DIR}/.env" <<EOF
+NODE_SEED=${NODE_SEED}
+NODE_ALIAS=${NODE_ALIAS}
 EOF
-    chmod 600 "${DATA_DIR}/bob.json"
-    log_ok "Config: ${DATA_DIR}/bob.json"
+    chmod 600 "${DATA_DIR}/.env"
+    log_ok "Config: ${DATA_DIR}/.env"
 
     # Create docker-compose.yml
     cat > "${DATA_DIR}/docker-compose.yml" <<EOF
@@ -167,8 +161,14 @@ services:
       - "${P2P_PORT}:21842"
       - "${API_PORT}:40420"
     volumes:
-      - ${DATA_DIR}/bob.json:/app/bob.json:ro
       - ${DATA_DIR}/data:/data
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=info
+      - RUN_SERVER=true
+      - SERVER_PORT=21842
+      - RPC_PORT=40420
 
   watchtower:
     image: containrrr/watchtower
@@ -187,7 +187,7 @@ EOF
     echo ""
     echo "  Container:   $CONTAINER_NAME"
     echo "  Data:        ${DATA_DIR}/data"
-    echo "  Config:      ${DATA_DIR}/bob.json"
+    echo "  Config:      ${DATA_DIR}/.env"
     echo "  P2P:         port ${P2P_PORT}"
     echo "  API:         http://localhost:${API_PORT}"
     echo "  Auto-Update: enabled (Watchtower)"
