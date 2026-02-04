@@ -277,8 +277,7 @@ do_install() {
         log_ok "Removed installer from download location"
     fi
 
-    log_info "Entering ${DATA_DIR}..."
-    cd "${DATA_DIR}" && exec bash
+    cd "${DATA_DIR}"
 }
 
 do_uninstall() {
@@ -332,7 +331,7 @@ do_status() {
 do_info() {
     if ! container_running; then
         log_error "Bob node is not running"
-        exit 1
+        return 1
     fi
 
     log_info "Fetching node info..."
@@ -341,7 +340,7 @@ do_info() {
 
     if [ -z "$response" ]; then
         log_error "Could not fetch status from port ${API_PORT}"
-        exit 1
+        return 1
     fi
 
     echo ""
@@ -373,7 +372,7 @@ do_info() {
 do_logs() {
     if ! container_exists; then
         log_error "Container not found"
-        exit 1
+        return 1
     fi
     log_info "Showing logs (Ctrl+C to exit)..."
     docker logs -f "$CONTAINER_NAME"
@@ -397,7 +396,7 @@ do_start() {
     # Check config file exists
     if [ ! -f "${DATA_DIR}/bob.json" ]; then
         log_error "Config file not found. Run: $0 install"
-        exit 1
+        return 1
     fi
 
     # Fetch fresh peers and update config
@@ -424,7 +423,7 @@ do_start() {
 do_restart() {
     if ! container_exists && [ ! -f "${DATA_DIR}/bob.json" ]; then
         log_error "Container not found. Run: $0 install"
-        exit 1
+        return 1
     fi
 
     # Fetch fresh peers and update config
@@ -451,13 +450,13 @@ do_update() {
 
     if ! container_exists; then
         log_error "Container not found"
-        exit 1
+        return 1
     fi
 
     # Check config file exists
     if [ ! -f "${DATA_DIR}/bob.json" ]; then
         log_error "Config file not found at ${DATA_DIR}/bob.json. Please reinstall."
-        exit 1
+        return 1
     fi
 
     # Pull latest image
@@ -530,34 +529,43 @@ EOF
 }
 
 interactive_menu() {
-    echo ""
-    print_logo
+    set +e  # Disable exit on error for interactive mode
+    while true; do
+        echo ""
+        print_logo
 
-    echo -e "         ${CYAN}┌────────────────────────────────────────┐${NC}"
-    echo -e "         ${CYAN}│${NC} ${GREEN}INSTALL${NC}                                ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   1) docker        install via docker  ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   2) uninstall     remove bob node     ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                 ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   3) status    4) info      5) logs    ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   6) stop      7) start     8) restart ${CYAN}│${NC}"
-    echo -e "         ${CYAN}│${NC}   9) update                            ${CYAN}│${NC}"
-    echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
-    echo ""
-    read -rp "         Select [1-9]: " choice
+        echo -e "         ${CYAN}┌────────────────────────────────────────┐${NC}"
+        echo -e "         ${CYAN}│${NC} ${GREEN}INSTALL${NC}                                ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   1) docker        install via docker  ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   2) uninstall     remove bob node     ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                 ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   3) status    4) info      5) logs    ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   6) stop      7) start     8) restart ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   9) update                            ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   0) exit                              ${CYAN}│${NC}"
+        echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
+        echo ""
+        read -rp "         Select [0-9]: " choice
 
-    case "$choice" in
-        1) interactive_install ;;
-        2) do_uninstall ;;
-        3) do_status ;;
-        4) do_info ;;
-        5) do_logs ;;
-        6) do_stop ;;
-        7) do_start ;;
-        8) do_restart ;;
-        9) do_update ;;
-        *) log_error "Invalid choice"; exit 1 ;;
-    esac
+        case "$choice" in
+            0) echo ""; log_info "Goodbye!"; exit 0 ;;
+            1) interactive_install || true ;;
+            2) do_uninstall || true ;;
+            3) do_status || true ;;
+            4) do_info || true ;;
+            5) do_logs || true ;;
+            6) do_stop || true ;;
+            7) do_start || true ;;
+            8) do_restart || true ;;
+            9) do_update || true ;;
+            *) log_error "Invalid choice" ;;
+        esac
+
+        echo ""
+        read -rp "Press Enter to continue..."
+    done
 }
 
 # --- Main ---
