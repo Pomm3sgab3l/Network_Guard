@@ -444,6 +444,7 @@ services:
       - ${DATA_DIR}/data:/app/data
     environment:
       - QUBIC_OPERATOR_SEED=${OPERATOR_SEED}
+      - QUBIC_OPERATOR_ALIAS=${OPERATOR_ALIAS}
       - QUBIC_PEERS=${PEER_LIST}
 EOF
     else
