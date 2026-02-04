@@ -627,7 +627,7 @@ do_start() {
     fi
 
     if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
-        cd "${DATA_DIR}" && docker compose start
+        cd "${DATA_DIR}" && docker compose up -d
         log_ok "Started"
     elif container_exists; then
         docker start "$CONTAINER_NAME"
@@ -640,7 +640,7 @@ do_start() {
 
 do_restart() {
     if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
-        cd "${DATA_DIR}" && docker compose restart
+        cd "${DATA_DIR}" && docker compose up -d --force-recreate
         log_ok "Restarted"
     elif container_exists; then
         docker restart "$CONTAINER_NAME"
