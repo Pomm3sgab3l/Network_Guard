@@ -51,6 +51,7 @@ cd /opt/qubic-bob
 The following providers have been tested with Bob Node:
 
 - Hetzner Cloud
+- Netcup / Hostkey
 - OVH / Bare Metal
 - AWS EC2
 - Google Cloud
@@ -58,163 +59,12 @@ The following providers have been tested with Bob Node:
 
 > **Note:** These are examples only. We do not guarantee that any provider permits running blockchain nodes. Please check the provider's terms of service before deploying.
 
-## Firewall
+### Cloud-Init Deployment
 
-```bash
-# UFW (Ubuntu)
-sudo ufw allow 22/tcp      # SSH
-sudo ufw allow 21842/tcp   # P2P
-sudo ufw allow 40420/tcp   # API (optional)
-sudo ufw enable
-```
+Deploy Bob Node with a single command using [cloud-init](https://cloud-init.io/). Replace `YOUR_SEED` and `YOUR_ALIAS` before deploying.
 
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| Container exits immediately | Check logs: `docker logs qubic-bob` |
-| Not syncing | Wait a few minutes, check logs for peer connections |
-| API not reachable | Check firewall, ensure port 40420 is open |
-
----
-
-# Lite Node
-
-Lightweight Qubic Core that runs on Linux without UEFI.
-
-## Requirements
-
-| Component | Testnet | Mainnet |
-|-----------|---------|---------|
-| RAM | 16 GB | 64 GB |
-| CPU | x86_64 | High-freq AVX2 |
-| Disk | - | 500 GB SSD |
-
-## Quick Start
-
-```bash
-wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite.sh
-chmod +x lite.sh && ./lite.sh
-```
-
-The script provides an interactive menu and stores data in `/opt/qubic-lite`.
-
-## Management
-
-```bash
-cd /opt/qubic-lite
-./lite.sh status    # show status
-./lite.sh logs      # view logs
-./lite.sh stop      # stop node
-./lite.sh start     # start node
-./lite.sh restart   # restart node
-./lite.sh update    # rebuild + restart
-./lite.sh uninstall # remove node
-```
-
-## Ports
-
-| Port | Protocol | Description |
-|------|----------|-------------|
-| 21841 | TCP | P2P (required) |
-
-## Cloud Provider Examples
-
-The following providers have been tested with Lite Node:
-
-- Hetzner Cloud
-- OVH / Bare Metal
-- AWS EC2
-- Google Cloud
-- DigitalOcean
-
-> **Note:** These are examples only. We do not guarantee that any provider permits running blockchain nodes. Please check the provider's terms of service before deploying.
-
-## Firewall
-
-```bash
-# UFW (Ubuntu)
-sudo ufw allow 22/tcp      # SSH
-sudo ufw allow 21841/tcp   # P2P
-sudo ufw enable
-```
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| Build fails | Check if AVX2 is supported: `grep avx2 /proc/cpuinfo` |
-| Not syncing | Check logs, verify peers are connecting |
-| High CPU usage | Normal during sync |
-
----
-
-# Cloud-Init Deployment
-
-Deploy Qubic nodes on any cloud provider with a single command using [cloud-init](https://cloud-init.io/).
-
-Supported providers: **Hetzner**, **Netcup**, **Hostkey**, **OVH**, **AWS**, **DigitalOcean**, **Google Cloud**, **Azure**
-
-> **Note:** Replace `YOUR_SEED` and `YOUR_ALIAS` with your actual values before deploying.
-
-## Lite Node (cloud-init.yml)
-
-```yaml
-#cloud-config
-package_update: true
-package_upgrade: true
-
-packages:
-  - ca-certificates
-  - curl
-  - ufw
-
-runcmd:
-  # Install Docker
-  - curl -fsSL https://get.docker.com | sh
-
-  # Configure firewall
-  - ufw allow 22/tcp
-  - ufw allow 21841/tcp
-  - ufw allow 41841/tcp
-  - ufw --force enable
-
-  # Create directory
-  - mkdir -p /opt/qubic-lite
-
-  # Create docker-compose.yml
-  - |
-    cat > /opt/qubic-lite/docker-compose.yml << 'EOF'
-    services:
-      qubic-lite:
-        image: qubiccore/lite:latest
-        container_name: qubic-lite
-        restart: unless-stopped
-        ports:
-          - "21841:21841"
-          - "41841:41841"
-        volumes:
-          - /opt/qubic-lite/data:/qubic
-        environment:
-          - QUBIC_MODE=normal
-          - QUBIC_OPERATOR_SEED=YOUR_SEED
-          - QUBIC_OPERATOR_ALIAS=YOUR_ALIAS
-          - QUBIC_LOG_LEVEL=INFO
-
-      watchtower:
-        image: containrrr/watchtower
-        container_name: watchtower
-        restart: unless-stopped
-        volumes:
-          - /var/run/docker.sock:/var/run/docker.sock
-        command: --interval 300 qubic-lite
-    EOF
-
-  # Start containers
-  - cd /opt/qubic-lite && docker compose up -d
-```
-
-## Bob Node (cloud-init.yml)
+<details>
+<summary><b>bob-cloud-init.yml</b> (click to expand)</summary>
 
 ```yaml
 #cloud-config
@@ -287,31 +137,187 @@ runcmd:
   - cd /opt/qubic-bob && docker compose up -d
 ```
 
-## Provider Commands
+</details>
 
-### Hetzner Cloud
+**Provider Commands:**
 
 ```bash
-# Lite Node (cx52 - 64GB RAM)
-hcloud server create --name qubic-lite --type cx52 --image ubuntu-24.04 --user-data-from-file cloud-init.yml
+# Hetzner Cloud (cx22 - 16GB RAM)
+hcloud server create --name qubic-bob --type cx22 --image ubuntu-24.04 --user-data-from-file bob-cloud-init.yml
 
-# Bob Node (cx22 - 16GB RAM)
-hcloud server create --name qubic-bob --type cx22 --image ubuntu-24.04 --user-data-from-file cloud-init.yml
+# DigitalOcean
+doctl compute droplet create qubic-bob --size s-4vcpu-16gb --image ubuntu-24-04-x64 --user-data-file bob-cloud-init.yml
+
+# Netcup / Hostkey: Upload cloud-init.yml in server configuration panel
 ```
 
-### Netcup / Hostkey
-
-Upload the `cloud-init.yml` file in the server configuration panel during VM creation.
-
-### DigitalOcean
+## Firewall
 
 ```bash
+# UFW (Ubuntu)
+sudo ufw allow 22/tcp      # SSH
+sudo ufw allow 21842/tcp   # P2P
+sudo ufw allow 40420/tcp   # API (optional)
+sudo ufw enable
+```
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Container exits immediately | Check logs: `docker logs qubic-bob` |
+| Not syncing | Wait a few minutes, check logs for peer connections |
+| API not reachable | Check firewall, ensure port 40420 is open |
+
+---
+
 # Lite Node
-doctl compute droplet create qubic-lite --size m-8vcpu-64gb --image ubuntu-24-04-x64 --user-data-file cloud-init.yml
 
-# Bob Node
-doctl compute droplet create qubic-bob --size s-4vcpu-16gb --image ubuntu-24-04-x64 --user-data-file cloud-init.yml
+Lightweight Qubic Core that runs on Linux without UEFI.
+
+## Requirements
+
+| Component | Testnet | Mainnet |
+|-----------|---------|---------|
+| RAM | 16 GB | 64 GB |
+| CPU | x86_64 | High-freq AVX2 |
+| Disk | - | 500 GB SSD |
+
+## Quick Start
+
+```bash
+wget -O lite.sh https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite.sh
+chmod +x lite.sh && ./lite.sh
 ```
+
+The script provides an interactive menu and stores data in `/opt/qubic-lite`.
+
+## Management
+
+```bash
+cd /opt/qubic-lite
+./lite.sh status    # show status
+./lite.sh logs      # view logs
+./lite.sh stop      # stop node
+./lite.sh start     # start node
+./lite.sh restart   # restart node
+./lite.sh update    # rebuild + restart
+./lite.sh uninstall # remove node
+```
+
+## Ports
+
+| Port | Protocol | Description |
+|------|----------|-------------|
+| 21841 | TCP | P2P (required) |
+| 41841 | TCP | HTTP API |
+
+## Cloud Provider Examples
+
+The following providers have been tested with Lite Node:
+
+- Hetzner Cloud
+- Netcup / Hostkey
+- OVH / Bare Metal
+- AWS EC2
+- Google Cloud
+- DigitalOcean
+
+> **Note:** These are examples only. We do not guarantee that any provider permits running blockchain nodes. Please check the provider's terms of service before deploying.
+
+### Cloud-Init Deployment
+
+Deploy Lite Node with a single command using [cloud-init](https://cloud-init.io/). Replace `YOUR_SEED` and `YOUR_ALIAS` before deploying.
+
+<details>
+<summary><b>lite-cloud-init.yml</b> (click to expand)</summary>
+
+```yaml
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - ufw
+
+runcmd:
+  # Install Docker
+  - curl -fsSL https://get.docker.com | sh
+
+  # Configure firewall
+  - ufw allow 22/tcp
+  - ufw allow 21841/tcp
+  - ufw allow 41841/tcp
+  - ufw --force enable
+
+  # Create directory
+  - mkdir -p /opt/qubic-lite
+
+  # Create docker-compose.yml
+  - |
+    cat > /opt/qubic-lite/docker-compose.yml << 'EOF'
+    services:
+      qubic-lite:
+        image: qubiccore/lite:latest
+        container_name: qubic-lite
+        restart: unless-stopped
+        ports:
+          - "21841:21841"
+          - "41841:41841"
+        volumes:
+          - /opt/qubic-lite/data:/qubic
+        environment:
+          - QUBIC_MODE=normal
+          - QUBIC_OPERATOR_SEED=YOUR_SEED
+          - QUBIC_OPERATOR_ALIAS=YOUR_ALIAS
+          - QUBIC_LOG_LEVEL=INFO
+
+      watchtower:
+        image: containrrr/watchtower
+        container_name: watchtower
+        restart: unless-stopped
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+        command: --interval 300 qubic-lite
+    EOF
+
+  # Start containers
+  - cd /opt/qubic-lite && docker compose up -d
+```
+
+</details>
+
+**Provider Commands:**
+
+```bash
+# Hetzner Cloud (cx52 - 64GB RAM)
+hcloud server create --name qubic-lite --type cx52 --image ubuntu-24.04 --user-data-from-file lite-cloud-init.yml
+
+# DigitalOcean
+doctl compute droplet create qubic-lite --size m-8vcpu-64gb --image ubuntu-24-04-x64 --user-data-file lite-cloud-init.yml
+
+# Netcup / Hostkey: Upload cloud-init.yml in server configuration panel
+```
+
+## Firewall
+
+```bash
+# UFW (Ubuntu)
+sudo ufw allow 22/tcp      # SSH
+sudo ufw allow 21841/tcp   # P2P
+sudo ufw allow 41841/tcp   # HTTP API
+sudo ufw enable
+```
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Build fails | Check if AVX2 is supported: `grep avx2 /proc/cpuinfo` |
+| Not syncing | Check logs, verify peers are connecting |
+| High CPU usage | Normal during sync |
 
 ---
 
