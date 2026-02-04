@@ -23,7 +23,6 @@ set -e
 CONTAINER_NAME="qubic-lite"
 DOCKER_IMAGE="qubiccore/lite"
 DATA_DIR="/opt/qubic-lite"
-PEERS_API="https://api.qubic.global/random-peers?service=bobNode&litePeers=8"
 
 # Default ports
 P2P_PORT=21841
@@ -64,7 +63,6 @@ print_usage() {
     echo "Install options:"
     echo "  --seed <seed>         Operator seed [REQUIRED]"
     echo "  --alias <alias>       Operator alias [REQUIRED]"
-    echo "  --peers <ip1,ip2>     Peer IPs (auto-fetched if omitted)"
     echo "  --p2p-port <port>     P2P port (default: 21841)"
     echo "  --http-port <port>    HTTP port (default: 41841)"
     echo "  --data-dir <path>     Data directory (default: /opt/qubic-lite)"
@@ -125,39 +123,6 @@ container_running() {
     docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
 }
 
-fetch_peers() {
-    local max_retries=3
-    local attempt=1
-
-    PEER_LIST=""
-
-    while [ $attempt -le $max_retries ]; do
-        log_info "Fetching peers (attempt ${attempt}/${max_retries})..."
-
-        local response
-        response=$(curl -sf --max-time 15 "$PEERS_API" 2>/dev/null || true)
-
-        if [ -n "$response" ]; then
-            local peers
-            peers=$(echo "$response" | grep -oP '"litePeers"\s*:\s*\[[^\]]*\]' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true)
-
-            if [ -n "$peers" ]; then
-                PEER_LIST=$(echo "$peers" | head -8 | tr '\n' ',' | sed 's/,$//')
-                local peer_count
-                peer_count=$(echo "$peers" | wc -l)
-                log_ok "Got ${peer_count} peers"
-                return 0
-            fi
-        fi
-
-        attempt=$((attempt + 1))
-        [ $attempt -le $max_retries ] && sleep 5
-    done
-
-    log_warn "Could not fetch peers automatically"
-    return 1
-}
-
 do_install() {
     log_info "Installing Lite node..."
 
@@ -189,16 +154,6 @@ do_install() {
     cp "$0" "${DATA_DIR}/lite.sh" 2>/dev/null || true
     chmod +x "${DATA_DIR}/lite.sh" 2>/dev/null || true
 
-    # Fetch peers
-    if [ -z "$PEER_LIST" ]; then
-        fetch_peers || true
-        if [ -z "$PEER_LIST" ]; then
-            log_error "No peers available. Use --peers <ip1,ip2,...>"
-            log_error "Find peers at: https://app.qubic.li/network/live"
-            exit 1
-        fi
-    fi
-
     # Pull image
     log_info "Pulling image from Docker Hub..."
     docker pull "${DOCKER_IMAGE}:latest"
@@ -220,7 +175,6 @@ services:
       - QUBIC_MODE=normal
       - QUBIC_OPERATOR_SEED=${OPERATOR_SEED}
       - QUBIC_OPERATOR_ALIAS=${OPERATOR_ALIAS}
-      - QUBIC_PEERS=${PEER_LIST}
       - QUBIC_LOG_LEVEL=INFO
 
   watchtower:
@@ -489,7 +443,6 @@ interactive_menu() {
 
 OPERATOR_SEED=""
 OPERATOR_ALIAS=""
-PEER_LIST=""
 
 # Parse arguments
 if [ $# -eq 0 ]; then
@@ -504,7 +457,6 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --seed)        OPERATOR_SEED="$2"; shift 2 ;;
         --alias)       OPERATOR_ALIAS="$2"; shift 2 ;;
-        --peers)       PEER_LIST="$2"; shift 2 ;;
         --p2p-port)    P2P_PORT="$2"; shift 2 ;;
         --http-port)   HTTP_PORT="$2"; shift 2 ;;
         --data-dir)    DATA_DIR="$2"; shift 2 ;;

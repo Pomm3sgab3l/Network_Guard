@@ -29,12 +29,11 @@ runcmd:
   # Create directory
   - mkdir -p /opt/qubic-bob
 
-  # Fetch peers and create config
+  # Create config
   - |
-    PEERS=$(curl -sf "https://api.qubic.global/random-peers?service=bobNode&litePeers=6" | grep -oE '"bobPeers":\[[^]]*\]' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -6 | while read ip; do echo -n "\"BM:${ip}:21841:0-0-0-0\","; done | sed 's/,$//')
-    cat > /opt/qubic-bob/bob.json << EOF
+    cat > /opt/qubic-bob/bob.json << 'EOF'
     {
-      "p2p-node": ["BM:0.0.0.0:21841:0-0-0-0",${PEERS}],
+      "p2p-node": ["BM:0.0.0.0:21841:0-0-0-0"],
       "request-cycle-ms": 100,
       "log-level": "info",
       "run-server": true,
