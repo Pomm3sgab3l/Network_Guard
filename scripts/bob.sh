@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Bob Node Installer - Simple Docker-based setup
+# Bob Node Installer - Docker-based setup
 # https://github.com/qubic/core-bob
 #
 # Usage:
@@ -15,14 +15,13 @@
 #   stop          Stop container
 #   start         Start container
 #   restart       Restart container
-#   update        Pull latest image and restart
 #
 
 set -e
 
 # --- Config ---
-DOCKER_IMAGE="qubiccore/bob"
 CONTAINER_NAME="qubic-bob"
+DOCKER_IMAGE="qubiccore/bob"
 DATA_DIR="/opt/qubic-bob"
 
 # Default ports
@@ -60,7 +59,6 @@ print_usage() {
     echo "  stop          Stop container"
     echo "  start         Start container"
     echo "  restart       Restart container"
-    echo "  update        Pull latest image and restart"
     echo ""
     echo "Install options:"
     echo "  --seed <seed>       Node seed (55 lowercase letters) [REQUIRED]"
@@ -72,7 +70,7 @@ print_usage() {
     echo "Examples:"
     echo "  $0 install --seed abcde...xyz --alias mynode"
     echo "  $0 logs"
-    echo "  $0 update"
+    echo "  $0 status"
 }
 
 print_security_warning() {
@@ -105,34 +103,6 @@ container_running() {
     docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
 }
 
-generate_config() {
-    local config_file="${DATA_DIR}/bob.json"
-    log_info "Generating config..."
-
-    cat > "$config_file" <<EOF
-{
-  "request-cycle-ms": 100,
-  "request-logging-cycle-ms": 30,
-  "future-offset": 3,
-  "log-level": "info",
-  "keydb-url": "tcp://127.0.0.1:6379",
-  "run-server": true,
-  "server-port": 21842,
-  "rpc-port": 40420,
-  "arbitrator-identity": "AFZPUAIYVPNUYGJRQVLUKOPPVLHAZQTGLYAAUUNBXFTVTAMSBKQBLEIEPCVJ",
-  "tick-storage-mode": "kvrocks",
-  "kvrocks-url": "tcp://127.0.0.1:6666",
-  "tx-storage-mode": "kvrocks",
-  "tx_tick_to_live": 10000,
-  "max-thread": 0,
-  "spam-qu-threshold": 100,
-  "node-seed": "${NODE_SEED}",
-  "node-alias": "${NODE_ALIAS}"
-}
-EOF
-    log_ok "Config: ${config_file}"
-}
-
 do_install() {
     log_info "Installing Bob node..."
 
@@ -153,44 +123,72 @@ do_install() {
         exit 1
     fi
 
-    # Stop existing container if running
+    # Stop existing containers
     if container_exists; then
         log_info "Removing existing container..."
         docker rm -f "$CONTAINER_NAME" &>/dev/null || true
     fi
+    docker rm -f watchtower &>/dev/null || true
 
-    # Create data directory and copy script
+    # Create directories
     mkdir -p "${DATA_DIR}/data"
 
-    # Copy this script to DATA_DIR for easy access
-    SCRIPT_PATH="${DATA_DIR}/bob.sh"
-    cp "$0" "$SCRIPT_PATH" 2>/dev/null || true
-    chmod +x "$SCRIPT_PATH" 2>/dev/null || true
+    # Copy script for management
+    cp "$0" "${DATA_DIR}/bob.sh" 2>/dev/null || true
+    chmod +x "${DATA_DIR}/bob.sh" 2>/dev/null || true
 
-    # Generate config file
-    generate_config
+    # Pull image
+    log_info "Pulling image from Docker Hub..."
+    docker pull "${DOCKER_IMAGE}:latest"
+    log_ok "Image ready"
 
-    # Start container
-    log_info "Starting container..."
-    docker run -d \
-        --name "$CONTAINER_NAME" \
-        --restart unless-stopped \
-        -p "${P2P_PORT}:21842" \
-        -p "${API_PORT}:40420" \
-        -v "${DATA_DIR}/bob.json:/app/bob.json:ro" \
-        -v "${DATA_DIR}/data:/data" \
-        "$DOCKER_IMAGE":latest
+    # Create .env file
+    cat > "${DATA_DIR}/.env" <<EOF
+NODE_SEED=${NODE_SEED}
+NODE_ALIAS=${NODE_ALIAS}
+EOF
+    chmod 600 "${DATA_DIR}/.env"
+    log_ok "Config: ${DATA_DIR}/.env"
+
+    # Create docker-compose.yml
+    cat > "${DATA_DIR}/docker-compose.yml" <<EOF
+services:
+  qubic-bob:
+    image: ${DOCKER_IMAGE}:latest
+    container_name: ${CONTAINER_NAME}
+    restart: unless-stopped
+    ports:
+      - "${P2P_PORT}:21842"
+      - "${API_PORT}:40420"
+    volumes:
+      - ${DATA_DIR}/data:/data
+    env_file:
+      - .env
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 300 ${CONTAINER_NAME}
+EOF
+
+    # Start containers
+    log_info "Starting containers..."
+    cd "${DATA_DIR}" && docker compose up -d
 
     log_ok "Bob node started!"
     echo ""
-    echo "  Container:  $CONTAINER_NAME"
-    echo "  Data:       ${DATA_DIR}/data"
-    echo "  P2P:        port ${P2P_PORT}"
-    echo "  API:        http://localhost:${API_PORT}"
+    echo "  Container:   $CONTAINER_NAME"
+    echo "  Data:        ${DATA_DIR}/data"
+    echo "  Config:      ${DATA_DIR}/.env"
+    echo "  P2P:         port ${P2P_PORT}"
+    echo "  API:         http://localhost:${API_PORT}"
+    echo "  Auto-Update: enabled (Watchtower)"
     echo ""
-    echo "  View logs:  ./bob.sh logs"
-    echo "  Status:     ./bob.sh status"
-    echo "  Update:     ./bob.sh update"
+    echo "  View logs:   ./bob.sh logs"
+    echo "  Status:      ./bob.sh status"
     echo ""
 
     # Remove original script if not in DATA_DIR
@@ -207,11 +205,14 @@ do_install() {
 do_uninstall() {
     log_info "Uninstalling Bob node..."
 
-    if container_exists; then
-        docker rm -f "$CONTAINER_NAME" &>/dev/null
-        log_ok "Container removed"
-    else
-        log_info "Container not found"
+    # Stop containers
+    if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
+        docker compose -f "${DATA_DIR}/docker-compose.yml" down -v 2>/dev/null || true
+        log_ok "Containers stopped"
+    elif container_exists; then
+        docker rm -f "$CONTAINER_NAME" &>/dev/null || true
+        docker rm -f watchtower &>/dev/null || true
+        log_ok "Containers removed"
     fi
 
     # Ask before removing data
@@ -228,9 +229,6 @@ do_uninstall() {
         fi
     fi
 
-    # Remove docker volume if exists
-    docker volume rm qubic-bob-data &>/dev/null || true
-
     log_ok "Uninstall complete"
 
     # Return to home if data dir was removed
@@ -244,6 +242,17 @@ do_status() {
         log_ok "Bob node is running"
         echo ""
         docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        docker ps --filter "name=watchtower" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || true
+        echo ""
+        log_info "Checking API endpoint..."
+        local response
+        response=$(curl -sf --max-time 5 "http://localhost:${API_PORT}/status" 2>/dev/null || true)
+        if [ -n "$response" ]; then
+            echo "$response" | head -c 500
+            echo ""
+        else
+            log_warn "API not responding on port ${API_PORT}"
+        fi
     elif container_exists; then
         log_warn "Bob node is stopped"
         docker ps -a --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}"
@@ -271,7 +280,6 @@ do_info() {
     echo -e "${GREEN}=== Bob Node Info ===${NC}"
     echo ""
 
-    # Parse and display key info (bob uses different field names)
     local epoch tick alias operator version uptime
     epoch=$(echo "$response" | grep -oP '"currentProcessingEpoch":\K[0-9]+')
     tick=$(echo "$response" | grep -oP '"currentFetchingTick":\K[0-9]+')
@@ -317,81 +325,29 @@ do_start() {
         return
     fi
 
-    # Check config file exists
-    if [ ! -f "${DATA_DIR}/bob.json" ]; then
-        log_error "Config file not found. Run: $0 install"
-        return 1
-    fi
-
-    # Remove old container if exists
-    docker rm -f "$CONTAINER_NAME" &>/dev/null || true
-
-    # Start fresh container
-    log_info "Starting container..."
-    docker run -d \
-        --name "$CONTAINER_NAME" \
-        --restart unless-stopped \
-        -p "${P2P_PORT}:21842" \
-        -p "${API_PORT}:40420" \
-        -v "${DATA_DIR}/bob.json:/app/bob.json:ro" \
-        -v "${DATA_DIR}/data:/data" \
-        "$DOCKER_IMAGE":latest
-
-    log_ok "Started"
-}
-
-do_restart() {
-    if ! container_exists && [ ! -f "${DATA_DIR}/bob.json" ]; then
+    if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
+        cd "${DATA_DIR}" && docker compose up -d
+        log_ok "Started"
+    elif container_exists; then
+        docker start "$CONTAINER_NAME"
+        log_ok "Started"
+    else
         log_error "Container not found. Run: $0 install"
         return 1
     fi
-
-    log_info "Restarting..."
-    docker rm -f "$CONTAINER_NAME" &>/dev/null || true
-
-    docker run -d \
-        --name "$CONTAINER_NAME" \
-        --restart unless-stopped \
-        -p "${P2P_PORT}:21842" \
-        -p "${API_PORT}:40420" \
-        -v "${DATA_DIR}/bob.json:/app/bob.json:ro" \
-        -v "${DATA_DIR}/data:/data" \
-        "$DOCKER_IMAGE":latest
-
-    log_ok "Restarted"
 }
 
-do_update() {
-    log_info "Updating Bob node..."
-
-    if ! container_exists; then
-        log_error "Container not found"
+do_restart() {
+    if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
+        cd "${DATA_DIR}" && docker compose up -d --force-recreate
+        log_ok "Restarted"
+    elif container_exists; then
+        docker restart "$CONTAINER_NAME"
+        log_ok "Restarted"
+    else
+        log_error "Container not found. Run: $0 install"
         return 1
     fi
-
-    # Check config file exists
-    if [ ! -f "${DATA_DIR}/bob.json" ]; then
-        log_error "Config file not found at ${DATA_DIR}/bob.json. Please reinstall."
-        return 1
-    fi
-
-    # Pull latest image
-    log_info "Pulling latest image..."
-    docker pull "$DOCKER_IMAGE":latest
-
-    # Recreate container
-    docker rm -f "$CONTAINER_NAME"
-
-    docker run -d \
-        --name "$CONTAINER_NAME" \
-        --restart unless-stopped \
-        -p "${P2P_PORT}:21842" \
-        -p "${API_PORT}:40420" \
-        -v "${DATA_DIR}/bob.json:/app/bob.json:ro" \
-        -v "${DATA_DIR}/data:/data" \
-        "$DOCKER_IMAGE":latest
-
-    log_ok "Updated to latest version"
 }
 
 interactive_install() {
@@ -448,18 +404,17 @@ interactive_menu() {
 
         echo -e "         ${CYAN}┌────────────────────────────────────────┐${NC}"
         echo -e "         ${CYAN}│${NC} ${GREEN}INSTALL${NC}                                ${CYAN}│${NC}"
-        echo -e "         ${CYAN}│${NC}   1) docker        install via docker  ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   1) install       setup bob node      ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   2) uninstall     remove bob node     ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                 ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   3) status    4) info      5) logs    ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   6) stop      7) start     8) restart ${CYAN}│${NC}"
-        echo -e "         ${CYAN}│${NC}   9) update                            ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   0) exit                              ${CYAN}│${NC}"
         echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
         echo ""
-        read -rp "         Select [0-9]: " choice
+        read -rp "         Select [0-8]: " choice
 
         case "$choice" in
             0) echo ""; log_info "Goodbye!"; exit 0 ;;
@@ -471,12 +426,11 @@ interactive_menu() {
             6) do_stop || true ;;
             7) do_start || true ;;
             8) do_restart || true ;;
-            9) do_update || true ;;
             *) log_error "Invalid choice" ;;
         esac
 
         echo ""
-        read -rp "Press Enter to continue..."
+        read -rp "         Press Enter to continue..." _
     done
 }
 
@@ -515,7 +469,6 @@ case "$COMMAND" in
     stop)       do_stop ;;
     start)      do_start ;;
     restart)    do_restart ;;
-    update)     do_update ;;
     help|--help|-h) print_usage ;;
     *)          log_error "Unknown command: $COMMAND"; print_usage; exit 1 ;;
 esac

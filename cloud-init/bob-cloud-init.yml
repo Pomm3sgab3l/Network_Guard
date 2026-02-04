@@ -29,23 +29,13 @@ runcmd:
   # Create directory
   - mkdir -p /opt/qubic-bob
 
-  # Create config
+  # Create .env file
   - |
-    cat > /opt/qubic-bob/bob.json << 'EOF'
-    {
-      "request-cycle-ms": 100,
-      "log-level": "info",
-      "run-server": true,
-      "server-port": 21842,
-      "rpc-port": 40420,
-      "arbitrator-identity": "AFZPUAIYVPNUYGJRQVLUKOPPVLHAZQTGLYAAUUNBXFTVTAMSBKQBLEIEPCVJ",
-      "tick-storage-mode": "kvrocks",
-      "kvrocks-url": "tcp://127.0.0.1:6666",
-      "tx-storage-mode": "kvrocks",
-      "node-seed": "YOUR_SEED",
-      "node-alias": "YOUR_ALIAS"
-    }
+    cat > /opt/qubic-bob/.env << 'EOF'
+    NODE_SEED=YOUR_SEED
+    NODE_ALIAS=YOUR_ALIAS
     EOF
+  - chmod 600 /opt/qubic-bob/.env
 
   # Create docker-compose.yml
   - |
@@ -59,8 +49,9 @@ runcmd:
           - "21842:21842"
           - "40420:40420"
         volumes:
-          - /opt/qubic-bob/bob.json:/app/bob.json:ro
           - /opt/qubic-bob/data:/data
+        env_file:
+          - .env
 
       watchtower:
         image: containrrr/watchtower

@@ -35,9 +35,10 @@ cd /opt/qubic-bob
 ./bob.sh stop       # stop node
 ./bob.sh start      # start node
 ./bob.sh restart    # restart node
-./bob.sh update     # update to latest
 ./bob.sh uninstall  # remove node
 ```
+
+> **Auto-Update:** Watchtower automatically updates the node when new versions are released.
 
 ## Ports
 
