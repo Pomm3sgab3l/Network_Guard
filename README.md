@@ -59,21 +59,9 @@ The following providers have been tested with Bob Node:
 
 > **Note:** These are examples only. We do not guarantee that any provider permits running blockchain nodes. Please check the provider's terms of service before deploying.
 
-### Cloud-Init Deployment
+### Cloud-Init
 
-Deploy Bob Node with a single command using [cloud-init](https://cloud-init.io/).
-
-**[bob-cloud-init.yml](cloud-init/bob-cloud-init.yml)** - Replace `YOUR_SEED` and `YOUR_ALIAS` before deploying.
-
-```bash
-# Hetzner Cloud (cx22 - 16GB RAM)
-hcloud server create --name qubic-bob --type cx22 --image ubuntu-24.04 --user-data-from-file bob-cloud-init.yml
-
-# DigitalOcean
-doctl compute droplet create qubic-bob --size s-4vcpu-16gb --image ubuntu-24-04-x64 --user-data-file bob-cloud-init.yml
-
-# Netcup / Hostkey: Upload cloud-init.yml in server configuration panel
-```
+Deploy with a single command using [cloud-init](cloud-init/).
 
 ## Firewall
 
@@ -149,21 +137,9 @@ The following providers have been tested with Lite Node:
 
 > **Note:** These are examples only. We do not guarantee that any provider permits running blockchain nodes. Please check the provider's terms of service before deploying.
 
-### Cloud-Init Deployment
+### Cloud-Init
 
-Deploy Lite Node with a single command using [cloud-init](https://cloud-init.io/).
-
-**[lite-cloud-init.yml](cloud-init/lite-cloud-init.yml)** - Replace `YOUR_SEED` and `YOUR_ALIAS` before deploying.
-
-```bash
-# Hetzner Cloud (cx52 - 64GB RAM)
-hcloud server create --name qubic-lite --type cx52 --image ubuntu-24.04 --user-data-from-file lite-cloud-init.yml
-
-# DigitalOcean
-doctl compute droplet create qubic-lite --size m-8vcpu-64gb --image ubuntu-24-04-x64 --user-data-file lite-cloud-init.yml
-
-# Netcup / Hostkey: Upload cloud-init.yml in server configuration panel
-```
+Deploy with a single command using [cloud-init](cloud-init/).
 
 ## Firewall
 
