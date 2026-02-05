@@ -2,6 +2,32 @@
 
 Setup scripts for running [Bob Node](https://github.com/qubic/core-bob) and [Lite Node](https://github.com/qubic/core-lite) on the Qubic network.
 
+## Table of Contents
+
+**Bob Node**
+
+1. [Requirements](#requirements)
+2. [Quick Start](#quick-start)
+3. [Management](#management)
+4. [Ports](#ports)
+5. [Cloud Provider Examples](#cloud-provider-examples)
+6. [Firewall](#firewall)
+7. [Troubleshooting](#troubleshooting)
+
+**Lite Node**
+
+8. [Requirements](#requirements-1)
+9. [Quick Start](#quick-start-1)
+10. [Management](#management-1)
+11. [Ports](#ports-1)
+12. [Cloud Provider Examples](#cloud-provider-examples-1)
+13. [Firewall](#firewall-1)
+14. [Troubleshooting](#troubleshooting-1)
+
+**General**
+
+15. [Links](#links)
+
 ---
 
 # Bob Node
