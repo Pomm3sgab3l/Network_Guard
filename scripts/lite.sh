@@ -15,6 +15,7 @@
 #   stop          Stop container
 #   start         Start container
 #   restart       Restart container
+#   reconfigure   Change seed/alias and restart
 #
 
 set -e
@@ -59,8 +60,9 @@ print_usage() {
     echo "  stop          Stop container"
     echo "  start         Start container"
     echo "  restart       Restart container"
+    echo "  reconfigure   Change seed/alias and restart"
     echo ""
-    echo "Install options:"
+    echo "Install/Reconfigure options:"
     echo "  --seed <seed>         Operator seed [REQUIRED]"
     echo "  --alias <alias>       Operator alias [REQUIRED]"
     echo "  --p2p-port <port>     P2P port (default: 21841)"
@@ -371,6 +373,49 @@ do_restart() {
     fi
 }
 
+do_reconfigure() {
+    if [ ! -f "${DATA_DIR}/.env" ]; then
+        log_error "No config found. Run install first."
+        return 1
+    fi
+
+    # Show current config
+    echo ""
+    log_info "Current config:"
+    local current_seed current_alias
+    current_seed=$(grep -oP 'QUBIC_OPERATOR_SEED=\K.*' "${DATA_DIR}/.env" 2>/dev/null)
+    current_alias=$(grep -oP 'QUBIC_OPERATOR_ALIAS=\K.*' "${DATA_DIR}/.env" 2>/dev/null)
+    echo "  Seed:  ${current_seed:0:8}...${current_seed: -4}"
+    echo "  Alias: ${current_alias}"
+    echo ""
+
+    # Get new values (Enter to keep current)
+    local new_seed new_alias
+    read -rp "New seed (Enter to keep current): " new_seed
+    read -rp "New alias (Enter to keep current): " new_alias
+
+    new_seed="${new_seed:-$current_seed}"
+    new_alias="${new_alias:-$current_alias}"
+
+    if [ "$new_seed" = "$current_seed" ] && [ "$new_alias" = "$current_alias" ]; then
+        log_info "No changes made"
+        return 0
+    fi
+
+    # Update .env
+    cat > "${DATA_DIR}/.env" <<EOF
+QUBIC_OPERATOR_SEED=${new_seed}
+QUBIC_OPERATOR_ALIAS=${new_alias}
+EOF
+    chmod 600 "${DATA_DIR}/.env"
+    log_ok "Config updated"
+
+    # Restart with volume reset
+    log_info "Restarting with fresh data..."
+    cd "${DATA_DIR}" && docker compose down -v && docker compose up -d
+    log_ok "Reconfigured and restarted!"
+}
+
 interactive_install() {
     echo ""
     echo "=== Lite Node Installer ==="
@@ -425,11 +470,12 @@ interactive_menu() {
         echo -e "         ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                 ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   3) status    4) info      5) logs    ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   6) stop      7) start     8) restart ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   9) reconfigure  change seed/alias   ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   0) exit                              ${CYAN}│${NC}"
         echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
         echo ""
-        read -rp "         Select [0-8]: " choice
+        read -rp "         Select [0-9]: " choice
 
         case "$choice" in
             0) echo ""; log_info "Goodbye!"; exit 0 ;;
@@ -441,6 +487,7 @@ interactive_menu() {
             6) do_stop || true ;;
             7) do_start || true ;;
             8) do_restart || true ;;
+            9) do_reconfigure || true ;;
             *) log_error "Invalid choice" ;;
         esac
 
@@ -483,7 +530,8 @@ case "$COMMAND" in
     logs)       do_logs ;;
     stop)       do_stop ;;
     start)      do_start ;;
-    restart)    do_restart ;;
+    restart)      do_restart ;;
+    reconfigure)  do_reconfigure ;;
     help|--help|-h) print_usage ;;
     *)          log_error "Unknown command: $COMMAND"; print_usage; exit 1 ;;
 esac
