@@ -145,7 +145,7 @@ do_install() {
         log_info "Removing existing container..."
         docker rm -f "$CONTAINER_NAME" &>/dev/null || true
     fi
-    docker rm -f watchtower &>/dev/null || true
+    docker rm -f watchtower-lite &>/dev/null || true
 
     # Create directory
     mkdir -p "${DATA_DIR}"
@@ -184,7 +184,7 @@ services:
 
   watchtower:
     image: containrrr/watchtower
-    container_name: watchtower
+    container_name: watchtower-lite
     restart: unless-stopped
     environment:
       DOCKER_API_VERSION: "1.44"
@@ -232,7 +232,7 @@ do_uninstall() {
         log_ok "Containers stopped"
     elif container_exists; then
         docker rm -f "$CONTAINER_NAME" &>/dev/null || true
-        docker rm -f watchtower &>/dev/null || true
+        docker rm -f watchtower-lite &>/dev/null || true
         log_ok "Containers removed"
     fi
 
@@ -263,7 +263,7 @@ do_status() {
         log_ok "Lite node is running"
         echo ""
         docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-        docker ps --filter "name=watchtower" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || true
+        docker ps --filter "name=watchtower-lite" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || true
         echo ""
         log_info "Checking HTTP endpoint..."
         local response
