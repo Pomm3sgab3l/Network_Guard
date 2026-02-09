@@ -290,6 +290,49 @@ do_uninstall() {
     fi
 }
 
+check_snapshot_progress() {
+    local volume_path snap_file snap_size total_size pct bar filled empty
+    volume_path=$(docker volume inspect qubic-lite_qubic-lite-data --format '{{.Mountpoint}}' 2>/dev/null || true)
+    [ -z "$volume_path" ] && return 1
+
+    snap_file="${volume_path}/snapshot.tar.zst"
+    [ ! -f "$snap_file" ] && return 1
+
+    snap_size=$(stat -c%s "$snap_file" 2>/dev/null || echo 0)
+    [ "$snap_size" -eq 0 ] && return 1
+
+    # Get total size from download URL in logs
+    local snap_url
+    snap_url=$(docker logs "$CONTAINER_NAME" 2>&1 | grep -oP 'Downloading \Khttps?://[^ "]+' | tail -1)
+    if [ -n "$snap_url" ]; then
+        total_size=$(curl -sI "$snap_url" 2>/dev/null | grep -i content-length | awk '{print $2}' | tr -d '\r')
+    fi
+
+    if [ -z "$total_size" ] || [ "$total_size" -eq 0 ] 2>/dev/null; then
+        # Fallback: show size only
+        local snap_mb=$((snap_size / 1024 / 1024))
+        echo -e "  ${YELLOW}Downloading snapshot... ${snap_mb} MB downloaded${NC}"
+        return 0
+    fi
+
+    pct=$((snap_size * 100 / total_size))
+    [ "$pct" -gt 100 ] && pct=100
+
+    local snap_gb total_gb
+    snap_gb=$(awk "BEGIN {printf \"%.1f\", $snap_size / 1024 / 1024 / 1024}")
+    total_gb=$(awk "BEGIN {printf \"%.1f\", $total_size / 1024 / 1024 / 1024}")
+
+    # Progress bar (30 chars wide)
+    filled=$((pct * 30 / 100))
+    empty=$((30 - filled))
+    bar=$(printf '%0.s█' $(seq 1 $filled 2>/dev/null) || true)
+    bar+=$(printf '%0.s░' $(seq 1 $empty 2>/dev/null) || true)
+
+    echo -e "  ${YELLOW}Downloading snapshot...${NC}"
+    echo -e "  ${CYAN}${bar}${NC} ${pct}%  (${snap_gb} / ${total_gb} GB)"
+    return 0
+}
+
 do_status() {
     if container_running; then
         log_ok "Lite node is running"
@@ -304,7 +347,10 @@ do_status() {
             echo "$response" | head -c 500
             echo ""
         else
-            log_warn "HTTP not responding on port ${HTTP_PORT}"
+            echo ""
+            if ! check_snapshot_progress; then
+                log_warn "HTTP not responding on port ${HTTP_PORT}"
+            fi
         fi
     elif container_exists; then
         log_warn "Lite node is stopped"
@@ -325,6 +371,12 @@ do_info() {
     response=$(curl -sf --max-time 10 "http://localhost:${HTTP_PORT}/tick-info" 2>/dev/null || true)
 
     if [ -z "$response" ]; then
+        echo ""
+        if check_snapshot_progress; then
+            echo ""
+            log_info "Node will be available after snapshot download completes"
+            return 0
+        fi
         log_error "Could not fetch tick-info from port ${HTTP_PORT}"
         return 1
     fi
