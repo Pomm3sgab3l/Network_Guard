@@ -69,7 +69,7 @@ print_usage() {
     echo "  --p2p-port <port>     P2P port (default: 21841)"
     echo "  --http-port <port>    HTTP port (default: 41841)"
     echo "  --data-dir <path>     Data directory (default: /opt/qubic-lite)"
-    echo "  --image <image>       Override Docker image (auto-detected by CPU)"
+    echo "  --image <image>       Override Docker image (default: qubiccore/lite:latest)"
     echo ""
     echo "Examples:"
     echo "  $0 install --seed myseed --alias mynode"
@@ -99,16 +99,6 @@ check_docker() {
     log_ok "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')"
 }
 
-detect_arch() {
-    if grep -q avx512 /proc/cpuinfo 2>/dev/null; then
-        echo "avx512"
-    elif grep -q avx2 /proc/cpuinfo 2>/dev/null; then
-        echo "avx2"
-    else
-        echo "none"
-    fi
-}
-
 check_system() {
     log_info "Checking system..."
 
@@ -122,29 +112,10 @@ check_system() {
         log_ok "RAM: ${ram_gb}GB"
     fi
 
-    if [ "$DOCKER_IMAGE" != "qubiccore/lite" ]; then
-        log_ok "Image: ${DOCKER_IMAGE} (manual override)"
+    if grep -q avx2 /proc/cpuinfo; then
+        log_ok "AVX2: supported"
     else
-        local arch
-        arch=$(detect_arch)
-
-        case "$arch" in
-            avx512)
-                log_ok "CPU: AVX-512 detected"
-                DOCKER_IMAGE="qubiccore/lite:latest"
-                log_ok "Image: ${DOCKER_IMAGE} (AVX-512)"
-                ;;
-            avx2)
-                log_ok "CPU: AVX2 detected"
-                DOCKER_IMAGE="qubiccore/lite:avx2"
-                log_ok "Image: ${DOCKER_IMAGE} (AVX2)"
-                ;;
-            *)
-                log_error "CPU: Neither AVX-512 nor AVX2 detected"
-                log_error "Qubic Lite requires at least AVX2 support"
-                exit 1
-                ;;
-        esac
+        log_warn "AVX2: not detected (required for mainnet)"
     fi
 }
 
@@ -188,8 +159,8 @@ do_install() {
     chmod +x "${DATA_DIR}/lite.sh" 2>/dev/null || true
 
     # Pull image
-    log_info "Pulling ${DOCKER_IMAGE}..."
-    docker pull "${DOCKER_IMAGE}"
+    log_info "Pulling ${DOCKER_IMAGE}:latest..."
+    docker pull "${DOCKER_IMAGE}:latest"
     log_ok "Image ready"
 
     # Create .env file with sensitive data
@@ -204,7 +175,7 @@ EOF
     cat > "${DATA_DIR}/docker-compose.yml" <<EOF
 services:
   qubic-lite:
-    image: ${DOCKER_IMAGE}
+    image: ${DOCKER_IMAGE}:latest
     container_name: ${CONTAINER_NAME}
     restart: unless-stopped
     ports:
