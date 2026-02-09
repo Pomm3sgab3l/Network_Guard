@@ -269,7 +269,7 @@ do_status() {
         echo ""
         log_info "Checking HTTP endpoint..."
         local response
-        response=$(curl -sf --max-time 5 "http://localhost:${HTTP_PORT}/live/v1" 2>/dev/null || true)
+        response=$(curl -sf --max-time 5 "http://localhost:${HTTP_PORT}/tick-info" 2>/dev/null || true)
         if [ -n "$response" ]; then
             echo "$response" | head -c 500
             echo ""
