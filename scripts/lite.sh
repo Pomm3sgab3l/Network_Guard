@@ -61,6 +61,7 @@ print_usage() {
     echo "  start         Start container"
     echo "  restart       Restart container"
     echo "  reconfigure   Change seed/alias and restart"
+    echo "  watch         Live snapshot download progress"
     echo ""
     echo "Install/Reconfigure options:"
     echo "  --seed <seed>         Operator seed [REQUIRED]"
@@ -290,6 +291,14 @@ do_uninstall() {
     fi
 }
 
+get_snapshot_total_size() {
+    local snap_url
+    snap_url=$(docker logs "$CONTAINER_NAME" 2>&1 | grep -oP 'Downloading \Khttps?://[^ "]+' | tail -1)
+    if [ -n "$snap_url" ]; then
+        curl -sI "$snap_url" 2>/dev/null | grep -i content-length | awk '{print $2}' | tr -d '\r'
+    fi
+}
+
 check_snapshot_progress() {
     local volume_path snap_file snap_size total_size pct bar filled empty
     volume_path=$(docker volume inspect qubic-lite_qubic-lite-data --format '{{.Mountpoint}}' 2>/dev/null || true)
@@ -301,15 +310,9 @@ check_snapshot_progress() {
     snap_size=$(stat -c%s "$snap_file" 2>/dev/null || echo 0)
     [ "$snap_size" -eq 0 ] && return 1
 
-    # Get total size from download URL in logs
-    local snap_url
-    snap_url=$(docker logs "$CONTAINER_NAME" 2>&1 | grep -oP 'Downloading \Khttps?://[^ "]+' | tail -1)
-    if [ -n "$snap_url" ]; then
-        total_size=$(curl -sI "$snap_url" 2>/dev/null | grep -i content-length | awk '{print $2}' | tr -d '\r')
-    fi
+    total_size=$(get_snapshot_total_size)
 
     if [ -z "$total_size" ] || [ "$total_size" -eq 0 ] 2>/dev/null; then
-        # Fallback: show size only
         local snap_mb=$((snap_size / 1024 / 1024))
         echo -e "  ${YELLOW}Downloading snapshot... ${snap_mb} MB downloaded${NC}"
         return 0
@@ -331,6 +334,54 @@ check_snapshot_progress() {
     echo -e "  ${YELLOW}Downloading snapshot...${NC}"
     echo -e "  ${CYAN}${bar}${NC} ${pct}%  (${snap_gb} / ${total_gb} GB)"
     return 0
+}
+
+watch_snapshot_progress() {
+    local volume_path snap_file total_size
+    volume_path=$(docker volume inspect qubic-lite_qubic-lite-data --format '{{.Mountpoint}}' 2>/dev/null || true)
+    [ -z "$volume_path" ] && { log_error "Volume not found"; return 1; }
+
+    snap_file="${volume_path}/snapshot.tar.zst"
+    if [ ! -f "$snap_file" ]; then
+        log_info "No snapshot download in progress"
+        return 1
+    fi
+
+    log_info "Fetching snapshot size..."
+    total_size=$(get_snapshot_total_size)
+
+    echo ""
+    echo -e "  ${YELLOW}Snapshot download (Ctrl+C to stop)${NC}"
+    echo ""
+
+    while [ -f "$snap_file" ]; do
+        local snap_size pct snap_gb total_gb filled empty bar
+        snap_size=$(stat -c%s "$snap_file" 2>/dev/null || echo 0)
+
+        if [ -n "$total_size" ] && [ "$total_size" -gt 0 ] 2>/dev/null; then
+            pct=$((snap_size * 100 / total_size))
+            [ "$pct" -gt 100 ] && pct=100
+            snap_gb=$(awk "BEGIN {printf \"%.1f\", $snap_size / 1024 / 1024 / 1024}")
+            total_gb=$(awk "BEGIN {printf \"%.1f\", $total_size / 1024 / 1024 / 1024}")
+
+            filled=$((pct * 30 / 100))
+            empty=$((30 - filled))
+            bar=$(printf '%0.s█' $(seq 1 $filled 2>/dev/null) || true)
+            bar+=$(printf '%0.s░' $(seq 1 $empty 2>/dev/null) || true)
+
+            printf "\r  ${CYAN}${bar}${NC} ${pct}%%  (${snap_gb} / ${total_gb} GB)  "
+        else
+            local snap_mb=$((snap_size / 1024 / 1024))
+            printf "\r  ${YELLOW}Downloading... ${snap_mb} MB${NC}  "
+        fi
+
+        # Check if download finished (file removed after extraction)
+        sleep 3
+    done
+
+    echo ""
+    echo ""
+    log_ok "Snapshot download complete!"
 }
 
 do_status() {
@@ -550,14 +601,15 @@ interactive_menu() {
         echo -e "         ${CYAN}│${NC}   2) uninstall     remove lite node    ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC} ${GREEN}MANAGE${NC}                                 ${CYAN}│${NC}"
-        echo -e "         ${CYAN}│${NC}   3) status    4) info      5) logs    ${CYAN}│${NC}"
-        echo -e "         ${CYAN}│${NC}   6) stop      7) start     8) restart ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   3) status    4) info       5) logs   ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}   6) stop      7) start      8) restart${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   9) reconfigure  change seed/alias    ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}  10) watch      live download progress ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   0) exit                              ${CYAN}│${NC}"
         echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
         echo ""
-        read -rp "         Select [0-9]: " choice
+        read -rp "         Select [0-10]: " choice
 
         case "$choice" in
             0) echo ""; log_info "Goodbye!"; exit 0 ;;
@@ -570,6 +622,7 @@ interactive_menu() {
             7) do_start || true ;;
             8) do_restart || true ;;
             9) do_reconfigure || true ;;
+            10) watch_snapshot_progress || true ;;
             *) log_error "Invalid choice" ;;
         esac
 
@@ -615,6 +668,7 @@ case "$COMMAND" in
     start)      do_start ;;
     restart)      do_restart ;;
     reconfigure)  do_reconfigure ;;
+    watch)        watch_snapshot_progress ;;
     help|--help|-h) print_usage ;;
     *)          log_error "Unknown command: $COMMAND"; print_usage; exit 1 ;;
 esac
