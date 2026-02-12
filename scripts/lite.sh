@@ -30,6 +30,9 @@ DATA_DIR="/opt/qubic-lite"
 P2P_PORT=21841
 HTTP_PORT=41841
 
+# Public RPC
+NETWORK_RPC="https://rpc.qubic.org/v1/tick-info"
+
 # --- Colors ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -127,6 +130,37 @@ container_exists() {
 
 container_running() {
     docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
+}
+
+get_network_tick() {
+    local resp
+    resp=$(curl -sf --max-time 5 "$NETWORK_RPC" 2>/dev/null || true)
+    [ -n "$resp" ] && echo "$resp" | grep -oP '"tick":\K[0-9]+' | head -1
+}
+
+get_local_tick() {
+    local resp
+    resp=$(curl -sf --max-time 5 "http://localhost:${HTTP_PORT}/tick-info" 2>/dev/null || true)
+    [ -n "$resp" ] && echo "$resp" | grep -oP '"tick":\K[0-9]+'
+}
+
+format_number() {
+    printf "%'d" "$1" 2>/dev/null || echo "$1"
+}
+
+format_eta() {
+    local seconds=$1
+    if [ "$seconds" -lt 60 ]; then
+        echo "< 1 min"
+    elif [ "$seconds" -lt 3600 ]; then
+        echo "~$((seconds / 60)) min"
+    elif [ "$seconds" -lt 86400 ]; then
+        local h=$((seconds / 3600)) m=$(( (seconds % 3600) / 60 ))
+        echo "~${h}h ${m}m"
+    else
+        local d=$((seconds / 86400)) h=$(( (seconds % 86400) / 3600 ))
+        echo "~${d}d ${h}h"
+    fi
 }
 
 do_install() {
@@ -363,19 +397,71 @@ do_status() {
         echo ""
         docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
         docker ps --filter "name=watchtower-lite" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || true
-        echo ""
-        log_info "Checking HTTP endpoint..."
-        local response
-        response=$(curl -sf --max-time 5 "http://localhost:${HTTP_PORT}/tick-info" 2>/dev/null || true)
-        if [ -n "$response" ]; then
-            echo "$response" | head -c 500
-            echo ""
-        else
+
+        # Get first tick sample
+        local tick1
+        tick1=$(get_local_tick)
+
+        if [ -z "$tick1" ]; then
             echo ""
             if ! check_snapshot_progress; then
                 log_warn "HTTP not responding on port ${HTTP_PORT}"
             fi
+            return
         fi
+
+        # Wait and get second sample to check if ticking
+        log_info "Checking node health..."
+        sleep 3
+        local tick2
+        tick2=$(get_local_tick)
+
+        # Get network tick
+        local net_tick
+        net_tick=$(get_network_tick)
+
+        echo ""
+        echo -e "  ${GREEN}=== Node Health ===${NC}"
+        echo ""
+
+        # Determine health status
+        local ticking=false
+        if [ -n "$tick2" ] && [ "$tick2" -gt "$tick1" ] 2>/dev/null; then
+            ticking=true
+        fi
+
+        if [ -n "$net_tick" ] && [ "$tick2" -ge "$net_tick" ] 2>/dev/null; then
+            echo -e "  Status:    ${GREEN}● SYNCED${NC}"
+        elif [ "$ticking" = true ]; then
+            echo -e "  Status:    ${YELLOW}● SYNCING${NC} (ticking)"
+        else
+            echo -e "  Status:    ${RED}● NOT TICKING${NC}"
+        fi
+
+        echo -e "  Node Tick: ${CYAN}$(format_number "$tick2")${NC}"
+
+        if [ -n "$net_tick" ]; then
+            echo -e "  Net Tick:  $(format_number "$net_tick")"
+
+            local behind=$((net_tick - tick2))
+            if [ "$behind" -gt 0 ]; then
+                local pct
+                pct=$(awk "BEGIN {printf \"%.1f\", $tick2 * 100 / $net_tick}")
+                echo -e "  Behind:    $(format_number "$behind") ticks (${pct}% synced)"
+
+                # ETA based on measured tick rate
+                if [ "$ticking" = true ]; then
+                    local rate=$(( (tick2 - tick1) ))  # ticks in 3 seconds
+                    if [ "$rate" -gt 0 ]; then
+                        local eta_sec=$(( behind * 3 / rate ))
+                        echo -e "  ETA:       ${CYAN}$(format_eta "$eta_sec")${NC}"
+                    fi
+                fi
+            fi
+        else
+            log_warn "Could not reach network RPC"
+        fi
+        echo ""
     elif container_exists; then
         log_warn "Lite node is stopped"
         docker ps -a --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}"
