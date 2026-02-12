@@ -285,73 +285,83 @@ do_uninstall() {
 
 do_status() {
     if container_running; then
-        log_ok "Bob node is running"
-        echo ""
-        docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-        docker ps --filter "name=watchtower-bob" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || true
+        trap 'echo ""; return 0' INT
 
-        # Get first tick sample
-        local tick1
-        tick1=$(get_local_tick)
-
-        if [ -z "$tick1" ]; then
+        local tick_prev=""
+        while true; do
+            clear
+            print_logo
+            log_ok "Bob node is running"
             echo ""
-            log_warn "API not responding on port ${API_PORT}"
-            return
-        fi
+            docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+            docker ps --filter "name=watchtower-bob" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || true
 
-        # Wait and get second sample to check if ticking
-        log_info "Checking node health..."
-        sleep 3
-        local tick2
-        tick2=$(get_local_tick)
+            local tick_now
+            tick_now=$(get_local_tick)
 
-        # Get network tick
-        local net_tick
-        net_tick=$(get_network_tick)
+            if [ -z "$tick_now" ]; then
+                echo ""
+                log_warn "API not responding on port ${API_PORT}"
+                echo ""
+                echo -e "  ${BLUE}Refreshing every 3s... (Ctrl+C to exit)${NC}"
+                tick_prev=""
+                sleep 3
+                continue
+            fi
 
-        echo ""
-        echo -e "  ${GREEN}=== Node Health ===${NC}"
-        echo ""
+            local net_tick
+            net_tick=$(get_network_tick)
 
-        # Determine health status
-        local ticking=false
-        if [ -n "$tick2" ] && [ "$tick2" -gt "$tick1" ] 2>/dev/null; then
-            ticking=true
-        fi
+            echo ""
+            echo -e "  ${GREEN}=== Node Health ===${NC}"
+            echo ""
 
-        if [ -n "$net_tick" ] && [ "$tick2" -ge "$net_tick" ] 2>/dev/null; then
-            echo -e "  Status:    ${GREEN}● SYNCED${NC}"
-        elif [ "$ticking" = true ]; then
-            echo -e "  Status:    ${YELLOW}● SYNCING${NC} (ticking)"
-        else
-            echo -e "  Status:    ${RED}● NOT TICKING${NC}"
-        fi
+            # Determine if ticking (compare with previous reading)
+            local ticking=false
+            if [ -n "$tick_prev" ] && [ "$tick_now" -gt "$tick_prev" ] 2>/dev/null; then
+                ticking=true
+            fi
 
-        echo -e "  Node Tick: ${CYAN}$(format_number "$tick2")${NC}"
+            if [ -n "$net_tick" ] && [ "$tick_now" -ge "$net_tick" ] 2>/dev/null; then
+                echo -e "  Status:    ${GREEN}● SYNCED${NC}"
+            elif [ -z "$tick_prev" ]; then
+                echo -e "  Status:    ${YELLOW}● CHECKING...${NC}"
+            elif [ "$ticking" = true ]; then
+                echo -e "  Status:    ${YELLOW}● SYNCING${NC} (ticking)"
+            else
+                echo -e "  Status:    ${RED}● NOT TICKING${NC}"
+            fi
 
-        if [ -n "$net_tick" ]; then
-            echo -e "  Net Tick:  $(format_number "$net_tick")"
+            echo -e "  Node Tick: ${CYAN}$(format_number "$tick_now")${NC}"
 
-            local behind=$((net_tick - tick2))
-            if [ "$behind" -gt 0 ]; then
-                local pct
-                pct=$(awk "BEGIN {printf \"%.1f\", $tick2 * 100 / $net_tick}")
-                echo -e "  Behind:    $(format_number "$behind") ticks (${pct}% synced)"
+            if [ -n "$net_tick" ]; then
+                echo -e "  Net Tick:  $(format_number "$net_tick")"
 
-                # ETA based on measured tick rate
-                if [ "$ticking" = true ]; then
-                    local rate=$(( (tick2 - tick1) ))  # ticks in 3 seconds
-                    if [ "$rate" -gt 0 ]; then
-                        local eta_sec=$(( behind * 3 / rate ))
-                        echo -e "  ETA:       ${CYAN}$(format_eta "$eta_sec")${NC}"
+                local behind=$((net_tick - tick_now))
+                if [ "$behind" -gt 0 ]; then
+                    local pct
+                    pct=$(awk "BEGIN {printf \"%.1f\", $tick_now * 100 / $net_tick}")
+                    echo -e "  Behind:    $(format_number "$behind") ticks (${pct}% synced)"
+
+                    # ETA based on measured tick rate
+                    if [ "$ticking" = true ] && [ -n "$tick_prev" ]; then
+                        local rate=$((tick_now - tick_prev))
+                        if [ "$rate" -gt 0 ]; then
+                            local eta_sec=$((behind * 3 / rate))
+                            echo -e "  ETA:       ${CYAN}$(format_eta "$eta_sec")${NC}"
+                        fi
                     fi
                 fi
+            else
+                log_warn "Could not reach network RPC"
             fi
-        else
-            log_warn "Could not reach network RPC"
-        fi
-        echo ""
+
+            echo ""
+            echo -e "  ${BLUE}Refreshing every 3s... (Ctrl+C to exit)${NC}"
+
+            tick_prev="$tick_now"
+            sleep 3
+        done
     elif container_exists; then
         log_warn "Bob node is stopped"
         docker ps -a --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}"
