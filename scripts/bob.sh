@@ -16,6 +16,7 @@
 #   start         Start container
 #   restart       Restart container
 #   reconfigure   Change seed/alias and restart
+#   update        Update this script to latest version
 #
 
 set -e
@@ -61,6 +62,7 @@ print_usage() {
     echo "  start         Start container"
     echo "  restart       Restart container"
     echo "  reconfigure   Change seed/alias and restart"
+    echo "  update        Update this script to latest version"
     echo ""
     echo "Install/Reconfigure options:"
     echo "  --seed <seed>       Node seed (55 lowercase letters) [REQUIRED]"
@@ -403,6 +405,41 @@ EOF
     log_ok "Reconfigured and restarted!"
 }
 
+do_update() {
+    local script_path update_url tmp_file
+    script_path=$(realpath "$0" 2>/dev/null || echo "$0")
+    update_url="https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/bob.sh"
+    tmp_file=$(mktemp)
+
+    log_info "Checking for updates..."
+
+    if ! curl -sfL --max-time 15 -o "$tmp_file" "$update_url"; then
+        rm -f "$tmp_file"
+        log_error "Failed to download update"
+        return 1
+    fi
+
+    # Verify download is a valid script
+    if ! head -1 "$tmp_file" | grep -q '^#!/bin/bash'; then
+        rm -f "$tmp_file"
+        log_error "Downloaded file is not a valid script"
+        return 1
+    fi
+
+    # Check if there are changes
+    if cmp -s "$script_path" "$tmp_file"; then
+        rm -f "$tmp_file"
+        log_ok "Already up to date"
+        return 0
+    fi
+
+    # Apply update
+    chmod +x "$tmp_file"
+    mv "$tmp_file" "$script_path"
+    log_ok "Updated successfully!"
+    log_info "Restart the script to use the new version"
+}
+
 interactive_install() {
     echo ""
     echo "=== Bob Node Installer ==="
@@ -465,10 +502,13 @@ interactive_menu() {
         echo -e "         ${CYAN}│${NC}   6) stop      7) start     8) restart ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   9) reconfigure  change seed/alias    ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC} ${GREEN}OTHER${NC}                                  ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}  10) update     update client script   ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   0) exit                              ${CYAN}│${NC}"
         echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
         echo ""
-        read -rp "         Select [0-9]: " choice
+        read -rp "         Select [0-10]: " choice
 
         case "$choice" in
             0) echo ""; log_info "Goodbye!"; exit 0 ;;
@@ -481,6 +521,7 @@ interactive_menu() {
             7) do_start || true ;;
             8) do_restart || true ;;
             9) do_reconfigure || true ;;
+            10) do_update || true ;;
             *) log_error "Invalid choice" ;;
         esac
 
@@ -525,6 +566,7 @@ case "$COMMAND" in
     start)      do_start ;;
     restart)      do_restart ;;
     reconfigure)  do_reconfigure ;;
+    update)       do_update ;;
     help|--help|-h) print_usage ;;
     *)          log_error "Unknown command: $COMMAND"; print_usage; exit 1 ;;
 esac
