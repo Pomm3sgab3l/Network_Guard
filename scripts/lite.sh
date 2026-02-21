@@ -16,6 +16,7 @@
 #   start         Start container
 #   restart       Restart container
 #   reconfigure   Change seed/alias and restart
+#   reset         Wipe node data and restart fresh
 #   update        Update this script to latest version
 #
 
@@ -65,6 +66,7 @@ print_usage() {
     echo "  start         Start container"
     echo "  restart       Restart container"
     echo "  reconfigure   Change seed/alias and restart"
+    echo "  reset         Wipe node data and restart fresh"
     echo "  update        Update this script to latest version"
     echo "  watch         Live snapshot download progress"
     echo ""
@@ -618,6 +620,46 @@ EOF
     log_ok "Reconfigured and restarted!"
 }
 
+do_reset() {
+    if ! container_exists; then
+        log_error "Lite node is not installed"
+        return 1
+    fi
+
+    echo ""
+    log_warn "This will DELETE all node data and restart with a fresh state."
+    read -rp "Are you sure? [y/N] " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        log_info "Cancelled"
+        return 0
+    fi
+
+    # Stop node
+    log_info "Stopping node..."
+    if container_running; then
+        cd "${DATA_DIR}" && docker compose stop qubic-lite
+        log_ok "Node stopped"
+    else
+        log_info "Node already stopped"
+    fi
+
+    # Delete volume data
+    local volume_path
+    volume_path=$(docker volume inspect qubic-lite_qubic-lite-data --format '{{.Mountpoint}}' 2>/dev/null || true)
+    if [ -n "$volume_path" ] && [ -d "$volume_path" ]; then
+        log_info "Deleting node data..."
+        rm -rf "${volume_path:?}"/*
+        log_ok "Node data deleted"
+    else
+        log_warn "Volume path not found, skipping data deletion"
+    fi
+
+    # Start node
+    log_info "Starting node..."
+    cd "${DATA_DIR}" && docker compose up -d
+    log_ok "Node reset complete! Starting with fresh state."
+}
+
 do_update() {
     local script_path update_url tmp_file
     script_path=$(realpath "$0" 2>/dev/null || echo "$0")
@@ -709,14 +751,15 @@ interactive_menu() {
         echo -e "         ${CYAN}│${NC}   6) stop      7) start      8) restart${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   9) reconfigure  change seed/alias    ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}  10) watch      live download progress ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}  11) reset      wipe data & restart    ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC} ${GREEN}OTHER${NC}                                  ${CYAN}│${NC}"
-        echo -e "         ${CYAN}│${NC}  11) update     update client script   ${CYAN}│${NC}"
+        echo -e "         ${CYAN}│${NC}  12) update     update client script   ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   0) exit                              ${CYAN}│${NC}"
         echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
         echo ""
-        read -rp "         Select [0-11]: " choice
+        read -rp "         Select [0-12]: " choice
 
         case "$choice" in
             0) echo ""; log_info "Goodbye!"; exit 0 ;;
@@ -730,7 +773,8 @@ interactive_menu() {
             8) do_restart || true ;;
             9) do_reconfigure || true ;;
             10) watch_snapshot_progress || true ;;
-            11) do_update || true ;;
+            11) do_reset || true ;;
+            12) do_update || true ;;
             *) log_error "Invalid choice" ;;
         esac
 
@@ -776,6 +820,7 @@ case "$COMMAND" in
     start)      do_start ;;
     restart)      do_restart ;;
     reconfigure)  do_reconfigure ;;
+    reset)        do_reset ;;
     update)       do_update ;;
     watch)        watch_snapshot_progress ;;
     help|--help|-h) print_usage ;;
