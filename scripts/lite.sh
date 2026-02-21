@@ -663,7 +663,7 @@ do_reset() {
 do_update() {
     local script_path update_url tmp_file
     script_path=$(realpath "$0" 2>/dev/null || echo "$0")
-    update_url="https://raw.githubusercontent.com/Pomm3sgab3l/Network_Guard/main/scripts/lite.sh"
+    update_url="https://raw.githubusercontent.com/qubic/network-guardians/main/scripts/lite.sh"
     tmp_file=$(mktemp)
 
     log_info "Checking for updates..."
