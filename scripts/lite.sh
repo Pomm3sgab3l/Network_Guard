@@ -628,35 +628,15 @@ do_reset() {
 
     echo ""
     log_warn "This will DELETE all node data and restart with a fresh state."
+    log_warn "Config (seed/alias) will be kept."
     read -rp "Are you sure? [y/N] " confirm
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
         log_info "Cancelled"
         return 0
     fi
 
-    # Stop node
-    log_info "Stopping node..."
-    if container_running; then
-        cd "${DATA_DIR}" && docker compose stop qubic-lite
-        log_ok "Node stopped"
-    else
-        log_info "Node already stopped"
-    fi
-
-    # Delete volume data
-    local volume_path
-    volume_path=$(docker volume inspect qubic-lite_qubic-lite-data --format '{{.Mountpoint}}' 2>/dev/null || true)
-    if [ -n "$volume_path" ] && [ -d "$volume_path" ]; then
-        log_info "Deleting node data..."
-        rm -rf "${volume_path:?}"/*
-        log_ok "Node data deleted"
-    else
-        log_warn "Volume path not found, skipping data deletion"
-    fi
-
-    # Start node
-    log_info "Starting node..."
-    cd "${DATA_DIR}" && docker compose up -d
+    log_info "Wiping data and restarting..."
+    cd "${DATA_DIR}" && docker compose down -v && docker compose up -d
     log_ok "Node reset complete! Starting with fresh state."
 }
 
