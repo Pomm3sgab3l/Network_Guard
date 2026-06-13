@@ -17,6 +17,8 @@
 #   restart       Restart container
 #   reconfigure   Change seed/alias and restart
 #   reset         Wipe node data and restart fresh
+#   set-mem       Set KeyDB maxmemory (e.g. 12gb) — live + persisted
+#   migrate       Migrate from named volumes to bind mounts
 #   update        Update this script to latest version
 #
 
@@ -36,6 +38,10 @@ API_PORT=40420
 
 # Public RPC
 NETWORK_RPC="https://rpc.qubic.org/v1/tick-info"
+
+# Self-update / Guardian dashboard
+BOB_SH_URL="https://raw.githubusercontent.com/qubic/network-guardians/main/scripts/bob.sh"
+GUARDIAN_PY_URL="https://raw.githubusercontent.com/qubic/network-guardians/main/scripts/bob-guardian.py"
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -59,7 +65,11 @@ print_usage() {
     echo "  Interactive:  $0"
     echo "  CLI:          $0 <command> [options]"
     echo ""
+    echo "Default (no command): opens the Guardian dashboard once a node is installed."
+    echo ""
     echo "Commands:"
+    echo "  dashboard     Open the Guardian dashboard (bob-guardian.py)"
+    echo "  old           Open the classic text menu (fallback)"
     echo "  install       Install and start Bob node"
     echo "  uninstall     Remove Bob node and data"
     echo "  status        Show container status"
@@ -70,6 +80,8 @@ print_usage() {
     echo "  restart       Restart container"
     echo "  reconfigure   Change seed/alias and restart"
     echo "  reset         Wipe node data and restart fresh"
+    echo "  set-mem <sz>  Set KeyDB maxmemory (e.g. 12gb) — live + persisted"
+    echo "  migrate       Migrate from named volumes to bind mounts"
     echo "  update        Update this script to latest version"
     echo ""
     echo "Install/Reconfigure options:"
@@ -121,9 +133,40 @@ get_network_tick() {
     [ -n "$resp" ] && echo "$resp" | grep -oP '"tick":\K[0-9]+' | head -1
 }
 
+# Resolve the first reachable Bob API base into $BOB_API_BASE (cached).
+# The published port can be unreachable via localhost on hardened nodes where the
+# firewall blocks host->bridge forwarding (route_localnet off): the loopback DNAT
+# stalls and only the host's primary IP — which hits docker-proxy on 0.0.0.0 —
+# answers. Try 127.0.0.1 -> primary host IP -> localhost, keep the first that works.
+# Call this from PARENT context (not inside $()), so the cache survives.
+BOB_API_BASE=""
+host_primary_ip() {
+    ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K[0-9.]+' | head -1
+}
+resolve_bob_api() {
+    # fast path: cached base still answering
+    if [ -n "$BOB_API_BASE" ] && \
+       curl -sf --max-time 3 -o /dev/null "${BOB_API_BASE}/status" 2>/dev/null; then
+        return 0
+    fi
+    BOB_API_BASE=""
+    local hip host
+    hip=$(host_primary_ip)
+    for host in 127.0.0.1 "$hip" localhost; do
+        [ -z "$host" ] && continue
+        if curl -sf --max-time 3 -o /dev/null "http://${host}:${API_PORT}/status" 2>/dev/null; then
+            BOB_API_BASE="http://${host}:${API_PORT}"
+            return 0
+        fi
+    done
+    return 1
+}
+
 get_local_tick() {
+    [ -z "$BOB_API_BASE" ] && resolve_bob_api
+    [ -z "$BOB_API_BASE" ] && return
     local resp
-    resp=$(curl -sf --max-time 5 "http://localhost:${API_PORT}/status" 2>/dev/null || true)
+    resp=$(curl -sf --max-time 5 "${BOB_API_BASE}/status" 2>/dev/null || true)
     [ -n "$resp" ] && echo "$resp" | grep -oP '"currentFetchingTick":\K[0-9]+'
 }
 
@@ -144,6 +187,56 @@ format_eta() {
         local d=$((seconds / 86400)) h=$(( (seconds % 86400) / 3600 ))
         echo "~${d}d ${h}h"
     fi
+}
+
+# Check if the current compose file still uses named volumes
+uses_named_volumes() {
+    [ -f "${DATA_DIR}/docker-compose.yml" ] && grep -q "qubic-bob-data:/data" "${DATA_DIR}/docker-compose.yml"
+}
+
+# Wipe bind-mounted data directories and recreate them
+wipe_data_dirs() {
+    rm -rf "${DATA_DIR}/data/kvrocks" "${DATA_DIR}/data/redis" "${DATA_DIR}/data/bob"
+    mkdir -p "${DATA_DIR}/data/kvrocks" "${DATA_DIR}/data/redis" "${DATA_DIR}/data/bob"
+}
+
+# Stop containers and wipe all node data, handling both old (named volumes) and new (bind mounts) setups
+stop_and_wipe() {
+    cd "${DATA_DIR}"
+    if uses_named_volumes; then
+        docker compose down -v
+    else
+        docker compose down
+        wipe_data_dirs
+    fi
+}
+
+# Confirm the node container actually reached (and held) a running state after a
+# start/restart/reset. `docker compose up -d` returns 0 as soon as the container
+# is created, but one that crashes on boot (port clash, bad config, data wiped
+# mid-write) flips to Exited a moment later. The old code printed success
+# regardless — and from the classic menu (which runs with `set +e`) that left an
+# operator staring at "reset complete" over a dead node. Poll until it's up, then
+# re-check after a beat so a boot-crash loop doesn't read as healthy. On failure
+# surface the real state + last log lines and return non-zero.
+verify_running() {
+    local i
+    for i in $(seq 1 8); do
+        container_running && break
+        sleep 1
+    done
+    if container_running; then
+        sleep 2
+        container_running && return 0
+    fi
+    log_error "Container '${CONTAINER_NAME}' is not running after start"
+    local state
+    state=$(docker ps -a --filter "name=^${CONTAINER_NAME}$" --format '{{.Status}}' 2>/dev/null)
+    [ -n "$state" ] && log_warn "State: ${state}"
+    log_warn "Recent logs:"
+    docker logs --tail 20 "$CONTAINER_NAME" 2>&1 | sed 's/^/    /' || true
+    log_warn "Retry with: cd ${DATA_DIR} && docker compose up -d"
+    return 1
 }
 
 do_install() {
@@ -173,8 +266,8 @@ do_install() {
     fi
     docker rm -f watchtower-bob &>/dev/null || true
 
-    # Create directory
-    mkdir -p "${DATA_DIR}"
+    # Create directories
+    mkdir -p "${DATA_DIR}/data/kvrocks" "${DATA_DIR}/data/redis" "${DATA_DIR}/data/bob"
 
     # Copy script for management
     cp "$0" "${DATA_DIR}/bob.sh" 2>/dev/null || true
@@ -206,7 +299,9 @@ services:
     env_file:
       - .env
     volumes:
-      - qubic-bob-data:/data
+      - ./data/kvrocks:/data/kvrocks
+      - ./data/redis:/data/redis
+      - ./data/bob:/data/bob
 
   watchtower:
     image: containrrr/watchtower
@@ -217,19 +312,18 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command: --interval 300 ${CONTAINER_NAME}
-
-volumes:
-  qubic-bob-data:
 EOF
 
     # Start containers
     log_info "Starting containers..."
     cd "${DATA_DIR}" && docker compose up -d
+    verify_running || return 1
 
     log_ok "Bob node started!"
     echo ""
     echo "  Container:   $CONTAINER_NAME"
     echo "  Config:      ${DATA_DIR}/.env"
+    echo "  Data:        ${DATA_DIR}/data/"
     echo "  P2P:         port ${P2P_PORT}"
     echo "  API:         http://localhost:${API_PORT}"
     echo "  Auto-Update: enabled (Watchtower)"
@@ -252,7 +346,7 @@ do_uninstall() {
 
     # Stop containers
     if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
-        docker compose -f "${DATA_DIR}/docker-compose.yml" down -v 2>/dev/null || true
+        docker compose -f "${DATA_DIR}/docker-compose.yml" down 2>/dev/null || true
         log_ok "Containers stopped"
     elif container_exists; then
         docker rm -f "$CONTAINER_NAME" &>/dev/null || true
@@ -274,6 +368,10 @@ do_uninstall() {
         fi
     fi
 
+    # Clean up any leftover named volumes from old installations
+    docker volume rm "qubic-bob_qubic-bob-data" 2>/dev/null || true
+    docker volume prune -f 2>/dev/null || true
+
     log_ok "Uninstall complete"
 
     # Return to home if data dir was removed
@@ -294,6 +392,9 @@ do_status() {
             echo ""
             docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
             docker ps --filter "name=watchtower-bob" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || true
+
+            # resolve in parent context so the cached base survives across polls
+            resolve_bob_api || true
 
             local tick_now
             tick_now=$(get_local_tick)
@@ -376,8 +477,9 @@ do_info() {
     fi
 
     log_info "Fetching node info..."
-    local response
-    response=$(curl -sf --max-time 10 "http://localhost:${API_PORT}/status" 2>/dev/null || true)
+    resolve_bob_api || true
+    local response=""
+    [ -n "$BOB_API_BASE" ] && response=$(curl -sf --max-time 10 "${BOB_API_BASE}/status" 2>/dev/null || true)
 
     if [ -z "$response" ]; then
         log_error "Could not fetch status from port ${API_PORT}"
@@ -435,9 +537,11 @@ do_start() {
 
     if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
         cd "${DATA_DIR}" && docker compose up -d
+        verify_running || return 1
         log_ok "Started"
     elif container_exists; then
         docker start "$CONTAINER_NAME"
+        verify_running || return 1
         log_ok "Started"
     else
         log_error "Container not found. Run: $0 install"
@@ -448,9 +552,11 @@ do_start() {
 do_restart() {
     if [ -f "${DATA_DIR}/docker-compose.yml" ]; then
         cd "${DATA_DIR}" && docker compose up -d --force-recreate
+        verify_running || return 1
         log_ok "Restarted"
     elif container_exists; then
         docker restart "$CONTAINER_NAME"
+        verify_running || return 1
         log_ok "Restarted"
     else
         log_error "Container not found. Run: $0 install"
@@ -495,9 +601,11 @@ EOF
     chmod 600 "${DATA_DIR}/.env"
     log_ok "Config updated"
 
-    # Restart with volume reset
+    # Restart with data wipe
     log_info "Restarting with fresh data..."
-    cd "${DATA_DIR}" && docker compose down -v && docker compose up -d
+    stop_and_wipe
+    cd "${DATA_DIR}" && docker compose up -d
+    verify_running || return 1
     log_ok "Reconfigured and restarted!"
 }
 
@@ -517,18 +625,140 @@ do_reset() {
     fi
 
     log_info "Wiping data and restarting..."
-    cd "${DATA_DIR}" && docker compose down -v && docker compose up -d
+    stop_and_wipe
+    cd "${DATA_DIR}" && docker compose up -d
+    verify_running || return 1
     log_ok "Node reset complete! Starting with fresh state."
 }
 
+do_migrate() {
+    log_info "Checking if migration is needed..."
+
+    if [ ! -f "${DATA_DIR}/docker-compose.yml" ]; then
+        log_error "No docker-compose.yml found at ${DATA_DIR}."
+        log_error "Nothing to migrate. Run install first."
+        return 1
+    fi
+
+    if ! uses_named_volumes; then
+        log_ok "Already using bind mounts. No migration needed."
+        return 0
+    fi
+
+    if ! container_exists; then
+        log_error "Container '$CONTAINER_NAME' not found."
+        return 1
+    fi
+
+    echo ""
+    log_info "This will migrate from Docker named volumes to local bind mounts."
+    log_info "Data will be stored under ${DATA_DIR}/data/"
+    echo ""
+    read -rp "Continue? [y/N] " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        log_info "Cancelled"
+        return 0
+    fi
+
+    # Step 1: Stop internal services
+    if container_running; then
+        echo ""
+        log_info "Stopping internal services (redis/kvrocks)..."
+        docker exec "$CONTAINER_NAME" /bin/sh -c '
+            if command -v supervisorctl > /dev/null 2>&1; then
+                supervisorctl stop all 2>/dev/null || true
+                sleep 3
+            else
+                kill $(pgrep -f redis-server 2>/dev/null) 2>/dev/null || true
+                kill $(pgrep -f kvrocks 2>/dev/null) 2>/dev/null || true
+                sleep 3
+            fi
+        ' 2>/dev/null || log_warn "Could not stop internal services. Continuing anyway."
+        log_ok "Internal services stopped"
+    fi
+
+    # Step 2: Create data directories
+    log_info "Creating data directories..."
+    mkdir -p "${DATA_DIR}/data/kvrocks" "${DATA_DIR}/data/redis" "${DATA_DIR}/data/bob"
+
+    # Step 3: Copy data from container
+    log_info "Copying data from container..."
+    for subdir in kvrocks redis bob; do
+        echo "  -> /data/${subdir}"
+        docker cp "$CONTAINER_NAME":/data/${subdir}/. "${DATA_DIR}/data/${subdir}/" 2>/dev/null || \
+            log_warn "Could not copy /data/${subdir} (may be empty)"
+    done
+
+    echo ""
+    log_info "Data sizes:"
+    du -sh "${DATA_DIR}/data"/* 2>/dev/null || echo "  (empty)"
+    echo ""
+
+    # Step 4: Backup compose file
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    cp "${DATA_DIR}/docker-compose.yml" "${DATA_DIR}/docker-compose.yml.backup.${timestamp}"
+    log_ok "Compose backup: docker-compose.yml.backup.${timestamp}"
+
+    # Step 5: Stop containers
+    log_info "Stopping containers..."
+    cd "${DATA_DIR}" && docker compose down
+
+    # Step 6: Patch docker-compose.yml
+    log_info "Patching docker-compose.yml..."
+
+    # Get the indentation of the existing volume line
+    local indent
+    indent=$(grep "qubic-bob-data:/data" "${DATA_DIR}/docker-compose.yml" | sed 's/\(-.*\)//')
+
+    # Replace the named volume mount with three bind mounts
+    sed -i "s|^.*- qubic-bob-data:/data.*$|${indent}- ./data/kvrocks:/data/kvrocks\n${indent}- ./data/redis:/data/redis\n${indent}- ./data/bob:/data/bob|" "${DATA_DIR}/docker-compose.yml"
+
+    # Remove the top-level volumes block and the qubic-bob-data entry
+    sed -i '/^volumes:/,/^[^ ]/{/^volumes:/d; /^[[:space:]]*qubic-bob-data:/d; /^[[:space:]]*$/d}' "${DATA_DIR}/docker-compose.yml"
+
+    # Clean up trailing blank lines
+    sed -i -e :a -e '/^\n*$/{$d;N;ba}' "${DATA_DIR}/docker-compose.yml"
+
+    echo ""
+    log_info "Changes applied:"
+    diff "${DATA_DIR}/docker-compose.yml.backup.${timestamp}" "${DATA_DIR}/docker-compose.yml" || true
+    echo ""
+
+    # Step 7: Start containers
+    log_info "Starting containers..."
+    docker compose up -d
+
+    # Step 8: Clean up old volumes
+    log_info "Cleaning up old Docker volumes..."
+    docker volume rm "qubic-bob_qubic-bob-data" 2>/dev/null && \
+        log_ok "Removed named volume qubic-bob_qubic-bob-data" || true
+    docker volume prune -f 2>/dev/null || true
+
+    # Verify
+    sleep 3
+    if container_running; then
+        echo ""
+        log_ok "Migration complete!"
+        echo ""
+        echo "  Data is now at: ${DATA_DIR}/data/"
+        docker inspect "$CONTAINER_NAME" --format '{{range .Mounts}}  {{.Type}}  {{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
+        echo ""
+    else
+        log_error "Container is not running after migration!"
+        log_error "Check logs: docker compose logs"
+        log_info "Your backup: ${DATA_DIR}/docker-compose.yml.backup.${timestamp}"
+        log_info "Your data:   ${DATA_DIR}/data/"
+    fi
+}
+
 do_update() {
-    local update_url tmp_file
-    update_url="https://raw.githubusercontent.com/qubic/network-guardians/main/scripts/bob.sh"
+    local tmp_file
     tmp_file=$(mktemp)
 
     log_info "Checking for updates..."
 
-    if ! curl -sfL --max-time 15 -o "$tmp_file" "$update_url"; then
+    if ! curl -sfL --max-time 15 -o "$tmp_file" "$BOB_SH_URL"; then
         rm -f "$tmp_file"
         log_error "Failed to download update"
         return 1
@@ -541,18 +771,113 @@ do_update() {
         return 1
     fi
 
-    # Check if there are changes
+    # Apply bob.sh update (if changed)
     if cmp -s "$SCRIPT_PATH" "$tmp_file"; then
         rm -f "$tmp_file"
-        log_ok "Already up to date"
-        return 0
+        log_ok "bob.sh already up to date"
+    else
+        chmod +x "$tmp_file"
+        # Only claim success if the replace truly happened. The old code printed
+        # "updated" unconditionally, so a failed mv (read-only fs, no perms,
+        # wrong path) left users re-running the OLD file in a loop, fooled into
+        # thinking it worked. Report the real result and how to recover.
+        if mv -f "$tmp_file" "$SCRIPT_PATH" 2>/dev/null; then
+            log_ok "bob.sh updated"
+        else
+            rm -f "$tmp_file"
+            log_error "Update could NOT replace this script (permissions / read-only fs?)."
+            log_warn  "Recover manually, then restart:"
+            log_warn  "  sudo curl -fsSL '$BOB_SH_URL' -o '$SCRIPT_PATH' && sudo chmod +x '$SCRIPT_PATH'"
+            return 1
+        fi
     fi
 
-    # Apply update
-    chmod +x "$tmp_file"
-    mv "$tmp_file" "$SCRIPT_PATH"
-    log_ok "Updated successfully!"
+    # Install/refresh the Guardian dashboard: fetch bob-guardian.py from git,
+    # chmod +x, and set up the python venv + deps — everything it needs.
+    install_guardian || true
+
     log_info "Restart the script to use the new version"
+}
+
+# --- Guardian dashboard (bob-guardian.py) ---
+
+guardian_paths() {
+    SCRIPT_HOME=$(dirname "$SCRIPT_PATH")
+    GUARDIAN_PY="${SCRIPT_HOME}/bob-guardian.py"
+    GUARDIAN_VENV="${SCRIPT_HOME}/.venv"
+}
+
+# Download bob-guardian.py from git + chmod +x. Returns 1 on failure.
+download_guardian_py() {
+    guardian_paths
+    local tmp
+    tmp=$(mktemp)
+    if curl -sfL --max-time 20 -o "$tmp" "$GUARDIAN_PY_URL" && head -1 "$tmp" | grep -q 'python'; then
+        if cmp -s "$GUARDIAN_PY" "$tmp" 2>/dev/null; then
+            rm -f "$tmp"
+            log_ok "Dashboard already up to date"
+        else
+            mv "$tmp" "$GUARDIAN_PY"
+            chmod u+x "$GUARDIAN_PY" 2>/dev/null || true
+            log_ok "Dashboard installed (bob-guardian.py)"
+        fi
+        return 0
+    fi
+    rm -f "$tmp"
+    log_warn "Could not fetch dashboard (bob-guardian.py) from git"
+    return 1
+}
+
+# Create/refresh the python venv with the dashboard deps. Returns 1 on failure.
+ensure_venv() {
+    guardian_paths
+    if ! command -v python3 >/dev/null 2>&1; then
+        log_warn "python3 not found (needed for the dashboard)"
+        return 1
+    fi
+    if [ -x "${GUARDIAN_VENV}/bin/python" ] && "${GUARDIAN_VENV}/bin/python" -c 'import textual' 2>/dev/null; then
+        return 0
+    fi
+    log_info "Setting up dashboard environment (~30s)..."
+    if ! python3 -m venv "$GUARDIAN_VENV" 2>/dev/null; then
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -y >/dev/null 2>&1 || true
+            apt-get install -y python3-venv >/dev/null 2>&1 || true
+        fi
+        python3 -m venv "$GUARDIAN_VENV" || { log_warn "venv creation failed"; return 1; }
+    fi
+    "${GUARDIAN_VENV}/bin/pip" install --quiet --upgrade pip >/dev/null 2>&1 || true
+    if ! "${GUARDIAN_VENV}/bin/pip" install --quiet 'textual>=0.80,<1' rich; then
+        log_warn "Failed to install dashboard dependencies"
+        return 1
+    fi
+    return 0
+}
+
+# Full install used by 'update': dashboard + deps + chmod.
+install_guardian() {
+    download_guardian_py || return 1
+    ensure_venv || return 1
+    log_ok "Dashboard ready — next './bob.sh' opens it"
+}
+
+launch_guardian() {
+    guardian_paths
+    # Not installed yet -> classic menu. 'update' installs it.
+    if [ ! -f "$GUARDIAN_PY" ]; then
+        log_info "New dashboard not installed yet — opening the classic menu."
+        log_info "Run 'update' to install the dashboard, then restart."
+        interactive_menu
+        return
+    fi
+    if ! ensure_venv; then
+        log_warn "Dashboard dependencies missing — opening the classic menu."
+        log_info "Run 'update' to (re)install, then restart."
+        interactive_menu
+        return
+    fi
+    exec "${GUARDIAN_VENV}/bin/python" "$GUARDIAN_PY" \
+        --bob-script "$SCRIPT_PATH" --api-port "$API_PORT"
 }
 
 interactive_install() {
@@ -607,6 +932,9 @@ interactive_menu() {
         echo ""
         print_logo
 
+        local needs_migrate=false
+        uses_named_volumes && needs_migrate=true
+
         echo -e "         ${CYAN}┌────────────────────────────────────────┐${NC}"
         echo -e "         ${CYAN}│${NC} ${GREEN}INSTALL${NC}                                ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   1) install       setup bob node      ${CYAN}│${NC}"
@@ -621,11 +949,14 @@ interactive_menu() {
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC} ${GREEN}OTHER${NC}                                  ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}  11) update     update client script   ${CYAN}│${NC}"
+        if [ "$needs_migrate" = true ]; then
+        echo -e "         ${CYAN}│${NC}  12) ${YELLOW}migrate${NC}    volumes → bind mounts  ${CYAN}│${NC}"
+        fi
         echo -e "         ${CYAN}│${NC}                                        ${CYAN}│${NC}"
         echo -e "         ${CYAN}│${NC}   0) exit                              ${CYAN}│${NC}"
         echo -e "         ${CYAN}└────────────────────────────────────────┘${NC}"
         echo ""
-        read -rp "         Select [0-11]: " choice
+        read -rp "         Select: " choice
 
         case "$choice" in
             0) echo ""; log_info "Goodbye!"; exit 0 ;;
@@ -640,6 +971,7 @@ interactive_menu() {
             9) do_reconfigure || true ;;
             10) do_reset || true ;;
             11) do_update || true ;;
+            12) if [ "$needs_migrate" = true ]; then do_migrate || true; else log_error "Invalid choice"; fi ;;
             *) log_error "Invalid choice" ;;
         esac
 
@@ -648,19 +980,74 @@ interactive_menu() {
     done
 }
 
+do_set_mem() {
+    local val="$1"
+    if [ -z "$val" ]; then
+        log_error "Usage: $0 set-mem <size>   (e.g. 8gb, 12gb, 8192mb)"
+        exit 1
+    fi
+    # redis memory value: digits + optional k/m/g (+ optional b), case-insensitive
+    if [[ ! "$val" =~ ^[0-9]+([kKmMgG][bB]?)?$ ]]; then
+        log_error "Invalid memory value: '$val' (use e.g. 8gb, 12gb, 8192mb)"
+        exit 1
+    fi
+    local env_file="${DATA_DIR}/.env"
+    if [ ! -f "$env_file" ]; then
+        log_error "Node not installed (${env_file} missing)"
+        exit 1
+    fi
+    # Persist so the limit survives container recreation / Watchtower updates: the
+    # bob image entrypoint writes REDIS_MAXMEMORY into redis.conf on every start.
+    if grep -q "^REDIS_MAXMEMORY=" "$env_file"; then
+        sed -i "s/^REDIS_MAXMEMORY=.*/REDIS_MAXMEMORY=${val}/" "$env_file"
+    else
+        echo "REDIS_MAXMEMORY=${val}" >> "$env_file"
+    fi
+    log_ok "Persisted REDIS_MAXMEMORY=${val} in ${env_file}"
+    # Apply immediately without a restart (KeyDB CONFIG SET takes effect live).
+    if container_running; then
+        if docker exec "$CONTAINER_NAME" redis-cli CONFIG SET maxmemory "$val" 2>/dev/null | grep -q OK; then
+            log_ok "Applied live: KeyDB maxmemory = ${val} (no restart needed)"
+        else
+            log_warn "Live apply failed — takes effect on next 'restart'"
+        fi
+    else
+        log_info "Container not running — applies on next start"
+    fi
+}
+
 # --- Main ---
+
+# When sourced (e.g. for the dashboard) only load the functions/config
+# above; skip the CLI/menu below.
+if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
+    return 0 2>/dev/null || true
+fi
 
 NODE_SEED=""
 NODE_ALIAS=""
 
 # Parse arguments
 if [ $# -eq 0 ]; then
-    interactive_menu
+    # Installed node  -> Guardian dashboard
+    # Fresh machine    -> classic install menu (familiar first-run flow)
+    if container_exists || [ -f "${DATA_DIR}/docker-compose.yml" ]; then
+        launch_guardian
+    else
+        interactive_menu
+    fi
     exit 0
 fi
 
 COMMAND="$1"
 shift
+
+# set-mem takes a positional value (new KeyDB maxmemory) before flag parsing
+MEM_VALUE=""
+if [ "$COMMAND" = "set-mem" ]; then
+    MEM_VALUE="$1"
+    [ $# -gt 0 ] && shift
+fi
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -685,7 +1072,11 @@ case "$COMMAND" in
     restart)      do_restart ;;
     reconfigure)  do_reconfigure ;;
     reset)        do_reset ;;
+    set-mem)      do_set_mem "$MEM_VALUE" ;;
+    migrate)      do_migrate ;;
     update)       do_update ;;
+    dashboard|guardian|ui) launch_guardian ;;
+    old|-old|--old|menu)   interactive_menu ;;
     help|--help|-h) print_usage ;;
     *)          log_error "Unknown command: $COMMAND"; print_usage; exit 1 ;;
 esac
